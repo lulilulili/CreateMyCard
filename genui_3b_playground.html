@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>GenUI 卡片生成演练场 — 3B 友好模板管线</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161d2e; --panel2:#1c2438; --line:#2a3550;
+    --txt:#e8edf7; --dim:#8b97b0; --acc:#4da3ff; --ok:#3ddc84; --warn:#ffb347; --err:#ff6b6b;
+    --mono:ui-monospace,Consolas,'Cascadia Code',monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.55 system-ui,'Segoe UI','Microsoft YaHei',sans-serif;padding:24px}
+  h1{font-size:20px;margin:0 0 4px}
+  h2{font-size:15px;margin:0 0 10px}
+  .sub{color:var(--dim);margin-bottom:20px}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  label{display:block;color:var(--dim);font-size:12px;margin:10px 0 4px}
+  input[type=text],input[type=password],textarea,select{
+    width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    color:var(--txt);padding:8px 10px;font-size:13px;font-family:inherit}
+  textarea{resize:vertical;min-height:64px}
+  button{cursor:pointer;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
+  .btn-primary{background:var(--acc);color:#04101f;width:100%;padding:12px;font-size:14px;margin-top:14px}
+  .btn-primary:disabled{opacity:.45;cursor:not-allowed}
+  .chip{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;
+    padding:3px 12px;font-size:12px;color:var(--dim);cursor:pointer;margin:2px 4px 2px 0}
+  .chip:hover{border-color:var(--acc);color:var(--txt)}
+  .stage{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:12px;overflow:hidden}
+  .stage-head{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer}
+  .stage-num{width:26px;height:26px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+  .stage-title{font-weight:600;flex:1}
+  .stage-kind{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+  .kind-llm{color:var(--warn);border-color:var(--warn)}
+  .kind-cloud{color:#7ec8ff;border-color:#3d76b8}
+  .badge{font-size:12px;font-weight:600;border-radius:999px;padding:2px 12px}
+  .b-pending{background:#232b40;color:var(--dim)}
+  .b-running{background:#233450;color:var(--acc)}
+  .b-done{background:#173325;color:var(--ok)}
+  .b-fallback{background:#3a2f16;color:var(--warn)}
+  .b-failed{background:#3a1c1c;color:var(--err)}
+  .stage-body{border-top:1px solid var(--line);padding:14px 16px;display:none}
+  .stage.open .stage-body{display:block}
+  .desc{color:var(--dim);font-size:13px;background:var(--panel2);border-left:3px solid var(--acc);
+    border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:12px;white-space:pre-wrap}
+  pre{background:#0b101c;border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow:auto;
+    font-family:var(--mono);font-size:12px;max-height:320px;margin:6px 0;white-space:pre-wrap;word-break:break-all}
+  details{margin:8px 0}
+  summary{cursor:pointer;color:var(--acc);font-size:12.5px}
+  .dur{color:var(--dim);font-size:11px}
+  .spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--acc);border-top-color:transparent;
+    border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:5px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .tabs{display:flex;gap:6px;margin-bottom:10px}
+  .tab{background:var(--panel2);border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font-size:13px}
+  .tab.active{color:var(--txt);border-color:var(--acc)}
+  .copy{float:right;background:var(--panel2);border:1px solid var(--line);color:var(--dim);font-size:11px;padding:3px 10px}
+  .copy:hover{color:var(--txt)}
+  .preview-wrap{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  #previewBox{transform-origin:top left}
+  .note{font-size:12px;color:var(--dim);margin-top:8px}
+  .err-line{color:var(--err);font-size:12.5px;margin:4px 0}
+  .ok-line{color:var(--ok);font-size:12.5px;margin:4px 0}
+  .warn-line{color:var(--warn);font-size:12.5px;margin:4px 0}
+  code{font-family:var(--mono);font-size:12px;background:var(--panel2);border-radius:4px;padding:0 4px}
+  a{color:var(--acc)}
+  .cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:10px 0 18px}
+  .cmp-col{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+  .cmp-col.old{border-top:3px solid var(--err)}
+  .cmp-col.new{border-top:3px solid var(--ok)}
+  .cmp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .cmp-tag{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px}
+  .cmp-tag.old{background:#3a1c1c;color:var(--err)}
+  .cmp-tag.new{background:#173325;color:var(--ok)}
+  .cmp-size{font-size:11px;color:var(--dim);font-family:var(--mono)}
+  .cmp-col pre{max-height:260px}
+  .cmp-col ul{margin:8px 0 0;padding-left:18px;color:var(--dim);font-size:12.5px}
+  .cmp-col ul li{margin:3px 0}
+  .cmp-sub{font-size:13px;font-weight:600;margin:16px 0 4px;color:var(--txt)}
+  @media (max-width:900px){.cmp-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<h1>GenUI 卡片生成演练场 <span style="color:var(--dim);font-weight:400">— 云侧小艺 + 端侧模板的端到端联调</span></h1>
+<div class="sub">
+  完整链路演示：<b>云侧主 Agent</b>（模拟小艺：场景门禁 → 能力选择 → 卡片命名，默认 DeepSeek，可换任意 OpenAI 兼容接口）
+  &rarr; TaskSpec &rarr; <b>端侧模板流程</b>（模板规划 + 组合，默认 ollama / qwen2.5:3b）&rarr; Compact DSL &rarr; A2UI。
+  两段各自独立配置 API，可分别替换以对比端云组合效果。
+</div>
+
+<div class="grid">
+<div><!-- 左栏 -->
+
+  <div class="card">
+    <h2>1 · 云侧主 Agent API（模拟小艺）</h2>
+    <label>预设服务商</label>
+    <select id="cPreset">
+      <option value="deepseek" selected>云端：DeepSeek</option>
+      <option value="ollama">本地 Ollama（离线联调）</option>
+      <option value="custom">自定义</option>
+    </select>
+    <label>Base URL（OpenAI 兼容，/v1）</label>
+    <input type="text" id="cBaseUrl" value="https://api.deepseek.com/v1">
+    <label>API Key</label>
+    <input type="password" id="cApiKey" value="">
+    <label>模型</label>
+    <input type="text" id="cModel" value="deepseek-chat">
+    <label><input type="checkbox" id="cJsonMode" checked style="width:auto;vertical-align:-2px"> 强制 JSON 模式</label>
+    <div class="note">承担小艺主 Agent 的 Step 2-4：场景门禁 → 读能力概述 → 选候选能力 → 拟卡片标题/描述。
+      云端接口需允许浏览器跨域；无云端 Key 时可切到本地 Ollama 模拟。</div>
+  </div>
+
+  <div class="card">
+    <h2>2 · 端侧模板流程 API</h2>
+    <label>预设服务商</label>
+    <select id="preset">
+      <option value="ollama" selected>端侧：Ollama（默认）</option>
+      <option value="cloud">云端：OpenAI 兼容接口</option>
+      <option value="custom">自定义</option>
+    </select>
+    <label>Base URL（OpenAI 兼容，/v1）</label>
+    <input type="text" id="baseUrl" value="http://localhost:11434/v1">
+    <label>API Key（Ollama 留空即可）</label>
+    <input type="password" id="apiKey" value="">
+    <label>模型</label>
+    <input type="text" id="model" value="qwen2.5:3b">
+    <label><input type="checkbox" id="jsonMode" checked style="width:auto;vertical-align:-2px"> 强制 JSON 模式（<code>response_format</code>）— 3B 模型推荐开启</label>
+    <div class="note">
+      承担模板选择与组合两次调用。Ollama 提示：若浏览器调用报 CORS 错误，请设置 <code>OLLAMA_ORIGINS=*</code> 后重启
+      （Windows：<code>setx OLLAMA_ORIGINS *</code> 然后重启 Ollama）。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · 卡片请求</h2>
+    <label>用户需求（想要一张什么卡片？）</label>
+    <textarea id="userQuery">帮我做一张天气卡片，重点看温度和感冒风险，点一下能打开天气应用</textarea>
+    <div style="margin-top:6px">
+      <span class="chip" data-q="帮我做一张天气卡片，重点看温度和感冒风险，点一下能打开天气应用">天气 + 点击跳转</span>
+      <span class="chip" data-q="生成一张电池卡片，显示电量和剩余可用时间">电池</span>
+      <span class="chip" data-q="我想看今天下一个日程，包含时间和地点，可以点开日历">日程</span>
+      <span class="chip" data-q="做个天气卡，只关心空气质量">空气质量</span>
+    </div>
+    <label>卡片尺寸</label>
+    <select id="cardSize"><option value="2x2" selected>2x2（模板路由支持）</option></select>
+    <button class="btn-primary" id="runBtn">▶ 生成卡片</button>
+    <div class="note" id="globalStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>关于本演示</h2>
+    <div class="note">
+      真实云侧服务把所有安全关键步骤都保持为<b>确定性逻辑</b>（注册表、Search、编译器、校验器），
+      LLM 只做两个很小的决策。本页面复刻了这种分工：
+      标注 <span class="stage-kind kind-llm" style="display:inline">LLM</span> 的阶段用
+      不足 1k token 的提示词调用你配置的模型；其余阶段全部是纯 JavaScript。
+      若模型两次未通过校验，该阶段会退回确定性兜底，保证始终能产出卡片。
+    </div>
+  </div>
+
+</div>
+<div><!-- 右栏 -->
+
+  <div id="stages"></div>
+
+  <div class="card" id="outputCard" style="display:none">
+    <h2>最终输出</h2>
+    <div class="tabs">
+      <button class="tab active" data-tab="compact">Compact DSL</button>
+      <button class="tab" data-tab="a2ui">A2UI（三段）</button>
+      <button class="tab" data-tab="preview">预览</button>
+    </div>
+    <div id="tab-compact">
+      <button class="copy" onclick="copyText('outCompact')">复制</button>
+      <pre id="outCompact"></pre>
+      <div class="note">NDJSON，每行一个 JSON 数组。组件行：<code>["id","Type",{props},[children]]</code>。
+      数据行：<code>["/json/pointer", value]</code> — 动态值通过 <code>{"path":"/data/..."}</code> 绑定插入。</div>
+    </div>
+    <div id="tab-a2ui" style="display:none">
+      <button class="copy" onclick="copyText('outA2ui')">复制</button>
+      <pre id="outA2ui"></pre>
+      <div class="note">标准三段 A2UI 流：<code>createSurface</code> → <code>updateComponents</code> → <code>updateDataModel</code>。</div>
+    </div>
+    <div id="tab-preview" style="display:none">
+      <div class="preview-wrap">
+        <div id="previewBox"></div>
+        <div class="note" style="max-width:280px">2x2 鸿蒙卡片的 HTML 近似效果
+        （真实渲染由端侧 A2UI 运行时完成）。动态值取自
+        <code>updateDataModel</code> 段。</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="card" id="promptCompare">
+  <h2>提示词优化对比 — 云侧原版 vs 3B 友好版</h2>
+  <div class="note" style="margin:0 0 6px">
+    左列为 <code>CreateMyCard-main/widget_service</code> 中真实使用的提示词（逐字摘录 + 载荷说明）；
+    右列为本页实际发送给 3B 模型的提示词，随上方「用户需求」实时生成（点击「生成卡片」后会同步刷新为本次实际内容）。
+  </div>
+
+  <div class="cmp-sub">① 第一层 · 模板规划（template chosen）</div>
+  <div class="cmp-grid">
+    <div class="cmp-col old">
+      <div class="cmp-head"><span class="cmp-tag old">云侧原版</span>
+        <span class="cmp-size">system ≈ 500 字 + JSON Schema；user 载荷通常 5k ~ 20k+ 字符</span></div>
+      <pre>你是模板生成第一层。只输出 template-retrieval-query/1 JSON。
+themeId 必须从 themes 选择；themes 已由服务按当前业务确定性过滤，
+存在融球候选时不会再包含非融球主题。
+requiredOutputFieldsByCapability 的 key 必须来自 candidateDataBindings。
+每个 value 仅保留 userQuery、title、description 或 taskSpec 明确要求展示的
+字段，字段必须逐字来自 candidateOutputFieldsByCapability；不得按模板反推
+字段，也不得补全用户未要求展示的字段。
+不得为了迁就布局限制而省略用户明确要求的其他业务字段；
+2x2 模板 Search 当前只接受一个可完整覆盖的业务，
+多个业务由服务端确定性判定模板不适用。
+用户只要求某领域卡片、未明确字段时，该 capability 输出空数组。
+action 仅当用户明确要求点击、跳转或操作时才选择 actionCandidates 中
+语义一致的零到两个不重复 eventId；不能因候选事件存在而默认选择。
+不得输出组件、模板、Variant、尺寸、布局、Props 或理由。
+{ ...TemplateRetrievalQuery 的完整 Pydantic JSON Schema... }</pre>
+      <ul>
+        <li>user 消息附带：<b>完整 TaskSpec</b>、taskSpecDataFields、candidateDataBindings、
+          candidateOutputFieldsByCapability、themes、actionCandidates、
+          <b>每个 Provider 的首层规则 Markdown</b>（providerFirstLayerRules）、
+          <b>每个 Theme 的首层规则文档</b>（themeFirstLayerRules）。</li>
+        <li>模型需在长上下文里同时“读懂规则手册 + 自我约束格式 + 做决策”——3B 模型在这三件事上都容易失守。</li>
+      </ul>
+    </div>
+    <div class="cmp-col new">
+      <div class="cmp-head"><span class="cmp-tag new">3B 友好版（本页实际使用）</span>
+        <span class="cmp-size" id="cmpPlanSize"></span></div>
+      <pre id="cmpPlanNew">（加载中…）</pre>
+      <ul>
+        <li><b>删规则、留选项</b>：所有“必须/不得”类规则移交给确定性校验器 + 带错误信息的重试（最多 2 次）+ 关键词兜底。</li>
+        <li><b>裁剪载荷</b>：不发 TaskSpec 全文和规则文档，只发「路径 + 一句话描述」的候选清单。</li>
+        <li><b>格式外包</b>：JSON 结构由 <code>response_format=json_object</code>（约束解码）保证，不靠提示词。</li>
+        <li><b>无 CoT</b>：直接作答；3B 模型在结构化任务上加 CoT 往往更差。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cmp-sub">② 第二层 · 组合与数据插入（composition）</div>
+  <div class="cmp-grid">
+    <div class="cmp-col old">
+      <div class="cmp-head"><span class="cmp-tag old">云侧原版</span>
+        <span class="cmp-size">kernel ≈ 600 字 + 动态契约上限 24,000 字符</span></div>
+      <pre>你是卡片模板第二层组合模型。上游首层路由已确定业务候选、Theme 和
+Action；你只在本轮动态契约内选择模板、设置 Props，并组合成一棵类
+Tersel 调用树。
+
+输出语法：
+1. 只输出一个以 `Template(` 开头、以 `);` 结束的完整直接调用树，不输出
+   Markdown、解释或代码块。
+2. 调用只允许位置参数：Template("templateId@version", {"prop": value},
+   ...children)。禁止变量赋值、return、关键字参数、对象方法调用、JSX、
+   数组 children 和任意其他函数。
+3. Props 必须是字面量对象，严格使用 templateContracts/layoutContracts/
+   actionContracts 中的完整签名；不得新增字段、改写类型或伪造未批准值。
+4. 根必须从 allowedUxLayouts 中选择一个与业务模板后缀及动作形态匹配的
+   布局 Template。每个 requiredLocalTemplateGroups 恰好选择一个业务
+   Template。普通 Action 按 selectedActionCandidates 顺序作为根的连续
+   末尾直接 children…（略）
+5. 只能使用动态契约中的 Template ID、Action 值和素材源。禁止 card@1、
+   基础组件、业务文本、数据路径、绑定、事件执行字段、A2UI 或候选外
+   Template。</pre>
+      <ul>
+        <li>user 消息附带动态契约：候选模板<b>完整 Props Schema</b>、必填/可选关系、布局契约全文、
+          Action 签名、素材清单、Provider 二层业务指导——整包上限 24k 字符。</li>
+        <li>模型要“生成”一棵语法受限的调用树；生成式输出正是小模型最不稳的地方。</li>
+      </ul>
+    </div>
+    <div class="cmp-col new">
+      <div class="cmp-head"><span class="cmp-tag new">3B 友好版（本页实际使用）</span>
+        <span class="cmp-size" id="cmpComposeSize"></span></div>
+      <pre id="cmpComposeNew">（加载中…）</pre>
+      <ul>
+        <li><b>生成 → 选择</b>：服务端先枚举全部合法（布局 × 模板）方案，模型只答
+          <code>{"plan": n, "showIcon": bool}</code>；调用树由确定性代码重建。</li>
+        <li><b>契约不进提示词</b>：Props Schema、签名、素材规则都留在服务端编译器里。</li>
+        <li><b>选错可控</b>：越界索引→带错重试→兜底方案 1，卡片必定产出。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cmp-sub">③ 非模板回退路线（自由生成 Compact DSL）</div>
+  <div class="cmp-grid">
+    <div class="cmp-col old">
+      <div class="cmp-head"><span class="cmp-tag old">云侧原版</span>
+        <span class="cmp-size">system prompt ≈ 105,716 字符（design-compact-dsl/PROMPT.md）</span></div>
+      <pre>你是 HarmonyOS 桌面卡片极简协议 DSL 生成模型。
+你的唯一任务是：对于一个由微服务提供的能力候选集合 TaskSpec，基于
+userQuery 从候选中选择最小充分子集，生成一张符合用户核心需求、信息
+准确、结构清晰、视觉精致、可由转换层稳定转换为 A2UI Form 的极简协议
+genui DSL。
+…（后接约 10 万字符：任务优先级、视觉构图原则、TaskSpec 输入契约、
+组件目录、布局预算、数据绑定、事件、素材、颜色等全部规则）…</pre>
+      <ul><li>一次性自由生成完整 DSL，依赖模型消化 10 万字符规则——这是云端大模型专属能力。</li></ul>
+    </div>
+    <div class="cmp-col new">
+      <div class="cmp-head"><span class="cmp-tag new">3B 端侧策略</span><span class="cmp-size">0 字符</span></div>
+      <pre>不移植。
+
+端侧只保留模板路线（对应云侧 generateWidgetCardTerseDslNested2 的
+Template-only 语义）；模板 Search 未命中时不再回退自由生成，而是使用
+确定性兜底（关键词选业务 + 默认 Theme + 首个合法方案），保证始终出卡。</pre>
+      <ul><li>10 万字符规则 ≈ 5–6 万 token，远超 3B 的有效注意力范围；强行移植只会产出不可校验的输出。</li></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+ *  内置迷你注册表
+ *  （对应 cloud/services/template_generation/resources：Provider、
+ *   .cardtpl 模板、Theme — 演示裁剪为 3 个 Provider）
+ * ================================================================ */
+const REGISTRY = {
+  capabilities: {
+    ViewWeather: {
+      root: "/data/weather", label: "Weather 天气", bundle: "com.huawei.hmsapp.totemweather",
+      fields: {
+        "/location/districtName":   {type:"string", desc:"district name 城市/区域名", sample:"海淀区"},
+        "/current/temperatureText": {type:"string", desc:"current temperature 当前温度", sample:"29°C"},
+        "/current/condition":       {type:"string", desc:"weather condition 天气现象", sample:"雷阵雨"},
+        "/current/airQuality":      {type:"string", desc:"air quality level 空气质量", sample:"优"},
+        "/current/coldLevel":       {type:"string", desc:"cold risk level 感冒风险", sample:"低"},
+        "/current/uvIndex":         {type:"string", desc:"UV level 紫外线等级", sample:"中等"}
+      }
+    },
+    PhoneBattery: {
+      root: "/data/battery", label: "Battery 电池", bundle: "com.huawei.hmos.settings",
+      fields: {
+        "/levelPercent":    {type:"number", desc:"battery level percent 电量百分比", sample:67},
+        "/chargeStateText": {type:"string", desc:"charging state 充电状态", sample:"未在充电"},
+        "/remainTimeText":  {type:"string", desc:"estimated remaining time 预计可用时长", sample:"约 9 小时"}
+      }
+    },
+    CalendarToday: {
+      root: "/data/schedule", label: "Calendar 日程", bundle: "com.huawei.hmos.calendar",
+      fields: {
+        "/next/title":    {type:"string", desc:"next event title 下一个日程标题", sample:"项目评审会"},
+        "/next/timeText": {type:"string", desc:"event time 日程时间", sample:"14:30 - 15:30"},
+        "/next/location": {type:"string", desc:"event location 日程地点", sample:"3F 会议室"}
+      }
+    }
+  },
+  events: [
+    {id:"event.open.weather",  cap:"ViewWeather",   label:"查看天气", desc:"open the weather app"},
+    {id:"event.open.battery",  cap:"PhoneBattery",  label:"电池管理", desc:"open battery settings"},
+    {id:"event.open.calendar", cap:"CalendarToday", label:"查看日程", desc:"open the calendar app"}
+  ],
+  themes: {
+    "fusion-weather-blue": {
+      desc:"cool blue gradient, weather / outdoor 天气蓝",
+      grad:["#4A7BD0","#2C4E9E","#1E3574"], primary:"#FFFFFF", support:"#D9FFFFFF",
+      actionBg:"#33FFFFFF", actionFg:"#FFFFFF"
+    },
+    "battery-yellow": {
+      desc:"warm yellow-green, energy / battery 电量黄",
+      grad:["#E8B33B","#C98A1F","#8F5E12"], primary:"#FFFFFF", support:"#E6FFF7E0",
+      actionBg:"#33FFFFFF", actionFg:"#FFFFFF"
+    },
+    "fusion-schedule-cool": {
+      desc:"calm violet, schedule / focus 日程紫",
+      grad:["#7B6CD9","#5947B8","#3D2F8A"], primary:"#FFFFFF", support:"#D9FFFFFF",
+      actionBg:"#33FFFFFF", actionFg:"#FFFFFF"
+    },
+    "neutral-dark": {
+      desc:"neutral gray, generic info 中性灰",
+      grad:["#8D96A3","#6F7A88","#586373"], primary:"#FFFFFF", support:"#D9FFFFFF",
+      actionBg:"#33FFFFFF", actionFg:"#FFFFFF"
+    }
+  },
+  // Theme 路由规则（对应 theme first-layer 规则）：每个 Provider 的默认主题
+  defaultTheme: {ViewWeather:"fusion-weather-blue", PhoneBattery:"battery-yellow", CalendarToday:"fusion-schedule-cool"}
+};
+
+/* 模板库 — 对应 .cardtpl：固定组件树、$path 绑定、$theme 颜色。
+ * b("/x") = 相对 Provider 数据根的绑定；t(...) 为节点构造辅助函数。 */
+const b = p => ({bind:p});
+function Txt(content, extra){ return {comp:"Text", props:Object.assign({content}, extra||{})}; }
+function Col(props, ...children){ return {comp:"Column", props:props||{}, children}; }
+function RowC(props, ...children){ return {comp:"Row", props:props||{}, children}; }
+
+const TEMPLATES = [
+  /* ---- 天气 ---- */
+  { id:"WeatherOverviewFull@1", provider:"ViewWeather", suffix:"Full", icon:true,
+    shows:["/location/districtName","/current/temperatureText","/current/condition","/current/airQuality","/current/coldLevel"],
+    build:(th,ic)=>Col({width:"matchParent",height:"matchParent",space:4,justifyContent:"spaceBetween",alignItems:"start"},
+      Col({width:"matchParent",space:2},
+        Txt(b("/location/districtName"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        RowC({width:"matchParent",space:8,alignItems:"center"},
+          Txt(b("/current/temperatureText"),{fontSize:38,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+          ...(ic?[{comp:"Image",props:{src:"resources/base/media/sun_max.svg",width:40,height:40,objectFit:"contain"}}]:[]))),
+      Col({width:"matchParent",space:0},
+        RowC({width:"matchParent",space:0},
+          Txt(b("/current/condition"),{fontSize:12,fontWeight:"500",fontColor:th.support,maxLines:1}),
+          Txt("｜空气",{fontSize:12,fontColor:th.support}),
+          Txt(b("/current/airQuality"),{fontSize:12,fontColor:th.support})),
+        RowC({width:"matchParent",space:0},
+          Txt("感冒风险 ",{fontSize:12,fontColor:th.support}),
+          Txt(b("/current/coldLevel"),{fontSize:12,fontColor:th.support})))) },
+  { id:"WeatherOverviewAirQualityFull@1", provider:"ViewWeather", suffix:"Full", icon:false,
+    shows:["/location/districtName","/current/airQuality","/current/condition","/current/temperatureText"],
+    build:(th)=>Col({width:"matchParent",height:"matchParent",space:4,justifyContent:"spaceBetween",alignItems:"start"},
+      Col({width:"matchParent",space:2},
+        RowC({width:"matchParent",space:0},
+          Txt(b("/location/districtName"),{fontSize:12,fontColor:th.support,maxLines:1}),
+          Txt("空气质量",{fontSize:12,fontColor:th.support})),
+        Txt(b("/current/airQuality"),{fontSize:34,fontWeight:"bold",fontColor:th.primary,maxLines:1})),
+      RowC({width:"matchParent",space:0},
+        Txt(b("/current/condition"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        Txt("｜",{fontSize:12,fontColor:th.support}),
+        Txt(b("/current/temperatureText"),{fontSize:12,fontColor:th.support}))) },
+  { id:"WeatherOverviewHero@1", provider:"ViewWeather", suffix:"Hero", icon:true,
+    shows:["/location/districtName","/current/temperatureText","/current/condition","/current/coldLevel"],
+    build:(th,ic)=>Col({width:"matchParent",space:2,alignItems:"start",layoutWeight:1},
+      RowC({width:"matchParent",justifyContent:"spaceBetween"},
+        Txt(b("/location/districtName"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        ...(ic?[{comp:"Image",props:{src:"resources/base/media/sun_max.svg",width:20,height:20,objectFit:"contain"}}]:[])),
+      Txt(b("/current/temperatureText"),{fontSize:34,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+      RowC({width:"matchParent",space:0},
+        Txt(b("/current/condition"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        Txt("｜感冒风险",{fontSize:12,fontColor:th.support}),
+        Txt(b("/current/coldLevel"),{fontSize:12,fontColor:th.support}))) },
+  { id:"WeatherOverviewCompact@1", provider:"ViewWeather", suffix:"Compact", icon:false,
+    shows:["/location/districtName","/current/temperatureText","/current/condition","/current/coldLevel"],
+    build:(th)=>Col({width:"matchParent",space:4,alignItems:"start",layoutWeight:1},
+      RowC({width:"matchParent",space:4,alignItems:"center"},
+        Txt(b("/location/districtName"),{fontSize:16,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+        Txt(b("/current/temperatureText"),{fontSize:16,fontWeight:"bold",fontColor:th.primary,maxLines:1})),
+      RowC({width:"matchParent",space:0},
+        Txt(b("/current/condition"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        Txt("｜感冒风险",{fontSize:12,fontColor:th.support}),
+        Txt(b("/current/coldLevel"),{fontSize:12,fontColor:th.support}))) },
+  /* ---- 电池 ---- */
+  { id:"BatteryOverviewFull@1", provider:"PhoneBattery", suffix:"Full", icon:false,
+    shows:["/levelPercent","/chargeStateText","/remainTimeText"],
+    build:(th)=>Col({width:"matchParent",height:"matchParent",space:4,justifyContent:"spaceBetween",alignItems:"start"},
+      Col({width:"matchParent",space:2},
+        Txt("当前电量",{fontSize:12,fontColor:th.support}),
+        RowC({width:"matchParent",space:2,alignItems:"end"},
+          Txt(b("/levelPercent"),{fontSize:38,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+          Txt("%",{fontSize:18,fontWeight:"bold",fontColor:th.primary}))),
+      Col({width:"matchParent",space:0},
+        Txt(b("/chargeStateText"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        RowC({width:"matchParent",space:0},
+          Txt("剩余",{fontSize:12,fontColor:th.support}),
+          Txt(b("/remainTimeText"),{fontSize:12,fontColor:th.support})))) },
+  { id:"BatteryOverviewHero@1", provider:"PhoneBattery", suffix:"Hero", icon:false,
+    shows:["/levelPercent","/remainTimeText"],
+    build:(th)=>Col({width:"matchParent",space:2,alignItems:"start",layoutWeight:1},
+      Txt("当前电量",{fontSize:12,fontColor:th.support}),
+      RowC({width:"matchParent",space:2,alignItems:"end"},
+        Txt(b("/levelPercent"),{fontSize:34,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+        Txt("%",{fontSize:16,fontWeight:"bold",fontColor:th.primary})),
+      RowC({width:"matchParent",space:0},
+        Txt("剩余",{fontSize:12,fontColor:th.support}),
+        Txt(b("/remainTimeText"),{fontSize:12,fontColor:th.support}))) },
+  { id:"BatteryOverviewCompact@1", provider:"PhoneBattery", suffix:"Compact", icon:false,
+    shows:["/levelPercent","/chargeStateText"],
+    build:(th)=>Col({width:"matchParent",space:4,alignItems:"start",layoutWeight:1},
+      RowC({width:"matchParent",space:2,alignItems:"end"},
+        Txt(b("/levelPercent"),{fontSize:24,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+        Txt("%",{fontSize:13,fontWeight:"bold",fontColor:th.primary})),
+      Txt(b("/chargeStateText"),{fontSize:12,fontColor:th.support,maxLines:1})) },
+  /* ---- 日程 ---- */
+  { id:"ScheduleOverviewFull@1", provider:"CalendarToday", suffix:"Full", icon:false,
+    shows:["/next/title","/next/timeText","/next/location"],
+    build:(th)=>Col({width:"matchParent",height:"matchParent",space:4,justifyContent:"spaceBetween",alignItems:"start"},
+      Col({width:"matchParent",space:2},
+        Txt("下一个日程",{fontSize:12,fontColor:th.support}),
+        Txt(b("/next/title"),{fontSize:20,fontWeight:"bold",fontColor:th.primary,maxLines:2})),
+      Col({width:"matchParent",space:0},
+        Txt(b("/next/timeText"),{fontSize:12,fontColor:th.support,maxLines:1}),
+        Txt(b("/next/location"),{fontSize:12,fontColor:th.support,maxLines:1}))) },
+  { id:"ScheduleOverviewHero@1", provider:"CalendarToday", suffix:"Hero", icon:false,
+    shows:["/next/title","/next/timeText"],
+    build:(th)=>Col({width:"matchParent",space:2,alignItems:"start",layoutWeight:1},
+      Txt("下一个日程",{fontSize:12,fontColor:th.support}),
+      Txt(b("/next/title"),{fontSize:18,fontWeight:"bold",fontColor:th.primary,maxLines:2}),
+      Txt(b("/next/timeText"),{fontSize:12,fontColor:th.support,maxLines:1})) },
+  { id:"ScheduleOverviewCompact@1", provider:"CalendarToday", suffix:"Compact", icon:false,
+    shows:["/next/title","/next/timeText"],
+    build:(th)=>Col({width:"matchParent",space:4,alignItems:"start",layoutWeight:1},
+      Txt(b("/next/title"),{fontSize:16,fontWeight:"bold",fontColor:th.primary,maxLines:1}),
+      Txt(b("/next/timeText"),{fontSize:12,fontColor:th.support,maxLines:1})) }
+];
+
+/* 布局契约：Action 数量 -> 允许的布局（对应 2x2 组合策略：
+ * 0 个 Action -> Full；1 个 -> Hero+PillAction 或 Full+IconAction；2 个 -> Compact + 双 Action） */
+const LAYOUTS = {
+  0: [{id:"FullLayout@1",       suffixes:["Full"],  actionKind:null,   desc:"单业务模板铺满整卡"}],
+  1: [{id:"HeroActionLayout@1", suffixes:["Hero"],  actionKind:"pill", desc:"业务 Hero 在上 + 底部一个胶囊按钮"},
+      {id:"FullIconActionLayout@1", suffixes:["Full"], actionKind:"icon", desc:"完整业务 + 一个小图标按钮"}],
+  2: [{id:"CompactActionLayout@1", suffixes:["Compact"], actionKind:"pill2", desc:"紧凑业务头部 + 两个胶囊按钮"}]
+};
+
+/* ================================================================
+ *  阶段定义与 UI
+ * ================================================================ */
+const STAGES = [
+ {key:"agent", kind:"cloud", title:"主 Agent — 场景判断与能力选择（模拟小艺）",
+  desc:`真实链路里这一步发生在小艺的云端 Agent 框架（Skill + 主 Agent），对应云侧方案 Step 2-4：
+· Step 2 场景门禁：判断请求是否适合做成桌面卡片；明显不适合（长报告/完整页面/复杂表单）直接说明边界，不调用微服务。
+· Step 3 调 getWidgetCapabilityOverview 拿"用户实际可用"的能力概述（微服务在该接口内完成 IDS 已装应用过滤）。
+· Step 4 根据 query 从 dataCapabilities 中筛选候选能力，并拟定卡片 title/description；核心能力缺失则直接结束并推荐相近场景。
+本演示：把这一步交给你配置的【云侧主 Agent API】（默认 DeepSeek，可换任意 OpenAI 兼容接口）执行，输出 {suitable, capabilities, title, description}；校验失败重试 2 次后退回关键词兜底。后续阶段只使用这里选中的能力。`},
+ {key:"spec", kind:"deterministic", title:"构造 CardSpec + TaskSpec",
+  desc:`云侧在此阶段做什么（确定性，无 LLM）：
+· Main Agent 已选好候选能力；服务按 App/ROM 版本区间（registry_ranges.json）过滤，并做 IDS 已安装应用匹配。
+· CardSpecBuilder 写入 title/size/dataBindings（capabilityId + writeResultTo 数据根，如 /data/weather）。
+· TaskSpecBuilder 把各能力 outputSchema 投影到 writeResultTo 下：每个请求的叶子字段复制 {type, description, sampleValue} 进 dataModelSchema — sampleValue 就是后面插入的预览数据。
+本演示用内置注册表构造同样的五字段 TaskSpec：{userQuery, size, eventCandidates, dataModelSchema, assetCandidates}。`},
+ {key:"plan", kind:"llm", title:"第一层 — 模板规划（模板选择）",
+  desc:`云侧在此阶段做什么（LLM + 确定性 Search）：
+· 第一层 LLM 并不挑选最终模板，只标定：themeId、用户明确要求展示的字段（按能力分组）、0-2 个显式 Action（一个很小的 JSON：TemplateRetrievalQuery）。
+· 随后确定性的服务端 Search 逐字校验每个字段是否来自 candidateOutputFields、解析唯一业务、按 Action 数过滤布局后缀（0→Full，1→Hero/Full，2→Compact），返回候选模板集合。模型说什么都逃不出注册表。
+本演示采用的 3B 适配：删掉提示词里的规则手册；模型只需从简短候选列表填一个 3 键 JSON（<1k token）。校验失败会带错误信息重试最多 2 次；仍失败则用确定性关键词兜底。`},
+ {key:"compose", kind:"llm", title:"第二层 — 组合（模板 + 布局选择）",
+  desc:`云侧在此阶段做什么（LLM + 严格编译器）：
+· 第二层 LLM 接收动态契约（候选模板签名、允许布局、已批准 Action、Theme ID — 上限 24k 字符），输出类 Tersel 调用树：Template("Layout", {}, Template("Business", {props}), Template("PillAction", {actionId}))。
+· compile_ux_layout_card() 是硬边界：解析调用树，逐一比对模板 ID / Props / Action 与契约，然后确定性展开 .cardtpl（$path 绑定、$theme 颜色、Action lowering）。契约违规时模块内最多修复 2 次。
+本演示采用的 3B 适配：不再生成调用树，而是由服务端枚举所有合法（布局 × 模板）方案（通常 <10 个），模型只做选择题：{"plan": n, "showIcon": bool}。对 3B 来说，选择远比生成可靠。`},
+ {key:"expand", kind:"deterministic", title:"模板展开与数据插入",
+  desc:`云侧在此阶段做什么（确定性）：
+· 展开选中的 .cardtpl：Bind/$path 变成以 CardSpec writeResultTo 为根的 {"path":"/data/..."} 引用；$theme(...) 展开为 theme.json 中的具体颜色；Theme rootStyle（渐变、圆角、内边距）应用到卡片根节点；已批准 Action 降级为 onClick。
+· “数据插入”不由 LLM 完成：每个绑定路径的初始值取自 TaskSpec dataModelSchema 的 sampleValue — 运行时能力结果之后会覆盖同一路径。`},
+ {key:"compact", kind:"deterministic", title:"序列化 → Compact DSL",
+  desc:`云侧在此阶段做什么（确定性）：
+· 展开后的标准组件树先序列化为 A2UI，适配当前 Form Profile，再回转为 Design Compact DSL，使模板产物与普通模型路线共用同一个公共 Processor / Validator / 修复 / artifact 格式。
+· Compact DSL 是 NDJSON：组件行 ["id","Type",{props},[children]] 父先子后，外加每个 path 绑定对应的数据行 ["/pointer", value]。`},
+ {key:"a2ui", kind:"deterministic", title:"转换 → A2UI 并校验",
+  desc:`云侧在此阶段做什么（确定性）：
+· DesignCompactProcessor：修复绑定路径 → validate_compact_dsl（validator_rules 中的协议/组件/绑定/表达式/素材规则）→ 转换为标准三段 A2UI（createSurface / updateComponents / updateDataModel）→ 显示单位修复。
+· Validator 错误可触发定向 LLM 修复循环（RetryController）；最终 artifact 落盘存储，WebSocket 响应返回其 URL。端侧 A2UI 运行时负责渲染（即 render 工程，此处不展开）。`}
+];
+
+const stagesEl = document.getElementById("stages");
+STAGES.forEach((s,i)=>{
+  const div=document.createElement("div"); div.className="stage"; div.id="stage-"+s.key;
+  div.innerHTML=`
+   <div class="stage-head" onclick="this.parentNode.classList.toggle('open')">
+     <div class="stage-num">${i+1}</div>
+     <div class="stage-title">${s.title}</div>
+     <span class="stage-kind ${s.kind==='llm'?'kind-llm':s.kind==='cloud'?'kind-cloud':''}">${s.kind==='llm'?'端侧 LLM':s.kind==='cloud'?'云侧 LLM':'确定性'}</span>
+     <span class="dur" id="dur-${s.key}"></span>
+     <span class="badge b-pending" id="badge-${s.key}">待运行</span>
+   </div>
+   <div class="stage-body">
+     <div class="desc">${s.desc}</div>
+     <div id="log-${s.key}"></div>
+   </div>`;
+  stagesEl.appendChild(div);
+});
+
+function setBadge(key, state, text){
+  const el=document.getElementById("badge-"+key);
+  el.className="badge b-"+state;
+  const labels={pending:"待运行",running:"运行中",done:"✓ 完成",fallback:"✓ 兜底",failed:"✗ 失败"};
+  el.innerHTML=(state==="running"?'<span class="spinner"></span>':"")+(text||labels[state]||state);
+  if(state!=="pending") document.getElementById("stage-"+key).classList.add("open");
+}
+function setDur(key, ms){ document.getElementById("dur-"+key).textContent=ms.toFixed(0)+" ms"; }
+function log(key, html){ document.getElementById("log-"+key).insertAdjacentHTML("beforeend", html); }
+function logJson(key, label, obj){
+  log(key, `<details open><summary>${label}</summary><pre>${escapeHtml(typeof obj==="string"?obj:JSON.stringify(obj,null,2))}</pre></details>`);
+}
+function escapeHtml(s){ return String(s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function copyText(id){ navigator.clipboard.writeText(document.getElementById(id).textContent); }
+
+/* 预设切换 */
+document.getElementById("preset").addEventListener("change", e=>{
+  const v=e.target.value;
+  if(v==="ollama"){ baseUrl.value="http://localhost:11434/v1"; apiKey.value=""; model.value="qwen2.5:3b"; }
+  if(v==="cloud"){ baseUrl.value="https://api.deepseek.com/v1"; model.value="deepseek-chat"; }
+});
+document.getElementById("cPreset").addEventListener("change", e=>{
+  const v=e.target.value;
+  if(v==="deepseek"){ cBaseUrl.value="https://api.deepseek.com/v1"; cModel.value="deepseek-chat"; }
+  if(v==="ollama"){ cBaseUrl.value="http://localhost:11434/v1"; cApiKey.value=""; cModel.value="qwen2.5:3b"; }
+});
+document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{ userQuery.value=c.dataset.q; if(typeof renderPromptCompare==="function") renderPromptCompare(); }));
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active")); t.classList.add("active");
+  ["compact","a2ui","preview"].forEach(k=>document.getElementById("tab-"+k).style.display=(t.dataset.tab===k?"":"none"));
+}));
+
+/* ================================================================
+ *  LLM 客户端（双配置：device=端侧模板流程，cloud=云侧主 Agent）
+ * ================================================================ */
+function getCfg(which){
+  if(which==="cloud")
+    return {base:document.getElementById("cBaseUrl").value, key:document.getElementById("cApiKey").value,
+            model:document.getElementById("cModel").value, json:document.getElementById("cJsonMode").checked,
+            tag:"云侧"};
+  return {base:document.getElementById("baseUrl").value, key:document.getElementById("apiKey").value,
+          model:document.getElementById("model").value, json:document.getElementById("jsonMode").checked,
+          tag:"端侧"};
+}
+async function chatJSON(messages, stageKey, cfg){
+  cfg=cfg||getCfg("device");
+  let base=cfg.base.trim().replace(/\/+$/,"");
+  if(/11434$/.test(base)) base+="/v1";
+  const body={ model:cfg.model.trim(), messages, temperature:0.2, max_tokens:400, stream:false };
+  if(cfg.json) body.response_format={type:"json_object"};
+  const headers={"Content-Type":"application/json"};
+  const key=cfg.key.trim();
+  if(key) headers["Authorization"]="Bearer "+key;
+  log(stageKey, `<details><summary>请求（${cfg.tag} ${escapeHtml(cfg.model)}）→ ${escapeHtml(base)}/chat/completions</summary><pre>${escapeHtml(JSON.stringify(body,null,2))}</pre></details>`);
+  const t0=performance.now();
+  let res;
+  try{
+    res=await fetch(base+"/chat/completions",{method:"POST",headers,body:JSON.stringify(body)});
+  }catch(e){
+    throw new Error("无法连接"+cfg.tag+"模型 API（"+e.message+"）。可能原因：① 服务未启动（Ollama：确认托盘图标在运行）；"
+      +"② 浏览器跨域被拒（Ollama：设置 OLLAMA_ORIGINS=* 后重启；云端接口需支持 CORS）；"
+      +"③ Base URL 填写有误（当前："+base+"）。");
+  }
+  if(!res.ok) throw new Error("HTTP "+res.status+" "+await res.text());
+  const data=await res.json();
+  const text=(data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content)||"";
+  log(stageKey, `<details><summary>模型原始响应（${(performance.now()-t0).toFixed(0)} ms）</summary><pre>${escapeHtml(text)}</pre></details>`);
+  return text;
+}
+function extractJSON(text){
+  const m=text.match(/\{[\s\S]*\}/);
+  if(!m) throw new Error("模型输出中没有 JSON 对象");
+  return JSON.parse(m[0]);
+}
+
+/* ================================================================
+ *  阶段 0 — 主 Agent 能力选择（云侧 LLM，模拟小艺 Step 2-4）
+ * ================================================================ */
+function capabilityOverview(){
+  return Object.entries(REGISTRY.capabilities).map(([id,c])=>
+    `${id}（${c.label}）: 可展示 ${Object.values(c.fields).map(f=>f.desc.split(" ").slice(-1)[0]).join("、")}`).join("\n");
+}
+function agentPromptMessages(query){
+  const system=
+`你是手机助手的卡片主 Agent。根据用户需求判断场景并从能力概述中选择候选能力，只输出一个 JSON 对象：
+{"suitable":true,"capabilities":["<capabilityId>"],"title":"<不超过8个字的卡片标题>","description":"<一句话卡片描述>"}
+规则：
+- capabilities 只能从 CAPABILITIES 列表选 1-2 个，且只选与用户需求直接相关的；
+- 需求明显不适合做成桌面小卡片（长文章、完整页面、复杂表单、闲聊）时输出 {"suitable":false,"reason":"<一句话边界说明>"}；
+- 不输出解释、Markdown 或额外字段。`;
+  const user=`CAPABILITIES（用户设备实际可用，已完成安装过滤）:\n${capabilityOverview()}\n\n用户需求: ${query}`;
+  return [{role:"system",content:system},{role:"user",content:user}];
+}
+function validateAgent(sel){
+  if(sel && sel.suitable===false){
+    return (typeof sel.reason==="string" && sel.reason) ? [] : ["suitable=false 时必须给出 reason"];
+  }
+  const errs=[];
+  const caps=Array.isArray(sel.capabilities)?sel.capabilities:[];
+  if(!caps.length || caps.length>2) errs.push("capabilities 必须为 1-2 个");
+  caps.forEach(c=>{ if(!REGISTRY.capabilities[c]) errs.push(`capability "${c}" 不在 CAPABILITIES 中`); });
+  if(typeof sel.title!=="string" || !sel.title.trim()) errs.push("缺少 title");
+  return errs;
+}
+function fallbackAgent(query){
+  const cap=fallbackPlan(query, Object.keys(REGISTRY.capabilities)).capability;
+  return {suitable:true, capabilities:[cap],
+          title:REGISTRY.capabilities[cap].label.split(" ").slice(-1)[0]+"卡片",
+          description:query.slice(0,30)};
+}
+
+/* ================================================================
+ *  阶段 1 — TaskSpec（确定性，只投影主 Agent 选中的能力）
+ * ================================================================ */
+function buildTaskSpec(query, size, selectedIds){
+  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
+  const dataModelSchema={data:{}};
+  for(const [capId,cap] of Object.entries(REGISTRY.capabilities)){
+    if(!ids.includes(capId)) continue;
+    for(const [path,leaf] of Object.entries(cap.fields)){
+      setPointer(dataModelSchema, cap.root+path, {type:leaf.type, description:leaf.desc, sampleValue:leaf.sample});
+    }
+  }
+  return {
+    userQuery:query, size,
+    eventCandidates:REGISTRY.events.filter(e=>ids.includes(e.cap))
+      .map(e=>({id:e.id, call:"clickToDeeplink", args:{bundleName:REGISTRY.capabilities[e.cap].bundle}})),
+    dataModelSchema,
+    assetCandidates:[{id:"asset.weather.sun", src:"resources/base/media/sun_max.svg", description:"sunny weather icon"}]
+  };
+}
+function setPointer(root, pointer, value){
+  const parts=pointer.replace(/^\//,"").split("/");
+  let cur=root;
+  parts.forEach((p,i)=>{
+    if(i===parts.length-1){ cur[p]=value; return; }
+    if(typeof cur[p]!=="object"||cur[p]===null) cur[p]={};
+    cur=cur[p];
+  });
+}
+
+/* ================================================================
+ *  阶段 2 — 第一层规划（LLM）+ 确定性 Search
+ * ================================================================ */
+function planPromptMessages(query, selectedIds, agentSel){
+  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
+  const caps=Object.entries(REGISTRY.capabilities).filter(([id])=>ids.includes(id)).map(([id,c])=>
+    `${id} (${c.label}):\n`+Object.entries(c.fields).map(([p,f])=>`  ${p} — ${f.desc}`).join("\n")).join("\n");
+  const themes=Object.entries(REGISTRY.themes).map(([id,t])=>`  ${id} — ${t.desc}`).join("\n");
+  const acts=REGISTRY.events.filter(e=>ids.includes(e.cap)).map(e=>`  ${e.id} — ${e.desc}`).join("\n");
+  const system=
+`You plan a small info card. Answer with ONE JSON object only, no explanation:
+{"theme":"<theme-id>","capability":"<capability-id>","fields":["</path>", ...],"action":["<event-id>", ...]}
+Rules:
+- capability: the ONE capability the user asks about.
+- fields: only paths of that capability the user explicitly wants to see; [] if the user names the domain without specific fields.
+- theme: one theme id that matches the capability.
+- action: [] unless the user asks to tap / open / jump; then 1-2 matching event ids.`;
+  const cardLine=agentSel?`\nCARD: title=${agentSel.title||""} desc=${agentSel.description||""}`:"";
+  const user=
+`CAPABILITIES:
+${caps}
+THEMES:
+${themes}
+ACTIONS:
+${acts}
+${cardLine}
+USER REQUEST: ${query}`;
+  return [{role:"system",content:system},{role:"user",content:user}];
+}
+function validatePlan(plan, selectedIds){
+  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
+  const errs=[];
+  const cap=REGISTRY.capabilities[plan.capability];
+  if(!cap) errs.push(`capability "${plan.capability}" 不在 CAPABILITIES 中`);
+  else if(!ids.includes(plan.capability)) errs.push(`capability "${plan.capability}" 不在主 Agent 选中的候选内`);
+  if(!REGISTRY.themes[plan.theme]) errs.push(`theme "${plan.theme}" 不在 THEMES 中`);
+  const fields=Array.isArray(plan.fields)?plan.fields:[];
+  if(cap) fields.forEach(f=>{ if(!cap.fields[f]) errs.push(`字段 "${f}" 不是 ${plan.capability} 的候选路径`); });
+  const actions=Array.isArray(plan.action)?plan.action:[];
+  if(actions.length>2) errs.push("Action 最多 2 个");
+  actions.forEach(a=>{ if(!REGISTRY.events.find(e=>e.id===a)) errs.push(`action "${a}" 不在 ACTIONS 中`); });
+  return errs;
+}
+function fallbackPlan(query, selectedIds){
+  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
+  const kw={ViewWeather:/天气|温度|weather|空气|紫外|感冒/i, PhoneBattery:/电池|电量|battery|充电/i, CalendarToday:/日程|日历|会议|schedule|calendar/i};
+  let capability=null;
+  for(const [id,re] of Object.entries(kw)) if(ids.includes(id)&&re.test(query)){ capability=id; break; }
+  if(!capability) capability=ids[0];
+  const evt=REGISTRY.events.find(e=>e.cap===capability);
+  const action=(/点|打开|跳|tap|open|click/i.test(query)&&evt)?[evt.id]:[];
+  return {theme:REGISTRY.defaultTheme[capability], capability, fields:[], action};
+}
+function searchTemplates(plan){
+  const n=plan.action.length;
+  const layouts=LAYOUTS[n];
+  const suffixes=new Set(layouts.flatMap(l=>l.suffixes));
+  let cands=TEMPLATES.filter(t=>t.provider===plan.capability && suffixes.has(t.suffix));
+  if(plan.fields.length)
+    cands=cands.filter(t=>plan.fields.every(f=>t.shows.includes(f)));
+  if(!cands.length) throw new Error(`${plan.capability} 没有能覆盖全部所需字段的 ${[...suffixes].join("/")} 模板 — Search 未命中（云侧此时会回退到普通 Compact 模型路线）`);
+  return {layouts, candidates:cands};
+}
+
+/* ================================================================
+ *  阶段 3 — 第二层组合（LLM 选择题）
+ * ================================================================ */
+function enumeratePlans(plan, search){
+  const out=[];
+  for(const layout of search.layouts)
+    for(const tpl of search.candidates.filter(t=>layout.suffixes.includes(t.suffix)))
+      out.push({layout, tpl});
+  return out;
+}
+function composePromptMessages(query, plan, options){
+  const list=options.map((o,i)=>{
+    const fields=o.tpl.shows.map(p=>REGISTRY.capabilities[plan.capability].fields[p].desc.split(" ")[0]).join(", ");
+    return `${i+1}. template=${o.tpl.id}  layout=${o.layout.id} (${o.layout.desc})  shows: ${fields}${o.tpl.icon?"  [icon available]":""}`;
+  }).join("\n");
+  const system=
+`You choose one card composition. Answer with ONE JSON object only:
+{"plan": <number>, "showIcon": <true|false>}
+Pick the plan whose displayed fields best match the user request. showIcon=true only when the plan says [icon available] and an icon helps.`;
+  const user=`PLANS:\n${list}\n\nUSER REQUEST: ${query}`;
+  return [{role:"system",content:system},{role:"user",content:user}];
+}
+
+/* ================================================================
+ *  阶段 4 — 展开与数据插入（确定性）
+ * ================================================================ */
+function expandCard(plan, choice){
+  const theme=REGISTRY.themes[plan.theme];
+  const cap=REGISTRY.capabilities[plan.capability];
+  const body=choice.tpl.build(theme, choice.showIcon && choice.tpl.icon);
+  const actions=plan.action.map(id=>{
+    const e=REGISTRY.events.find(x=>x.id===id);
+    return {id:e.id,label:e.label,call:"clickToDeeplink",args:{bundleName:REGISTRY.capabilities[e.cap].bundle}};
+  });
+  const kids=[body];
+  const mkPill=(ev,small)=>RowC({width:small?undefined:"matchParent",layoutWeight:small?1:undefined,height:28,
+      justifyContent:"center",alignItems:"center",backgroundColor:theme.actionBg,borderRadius:14,
+      onClick:[{call:ev.call,args:ev.args}]},
+      Txt(ev.label,{fontSize:12,fontWeight:"500",fontColor:theme.actionFg}));
+  if(choice.layout.actionKind==="pill"&&actions[0]) kids.push(mkPill(actions[0]));
+  if(choice.layout.actionKind==="icon"&&actions[0]) kids.push(mkPill(actions[0]));
+  if(choice.layout.actionKind==="pill2") kids.push(RowC({width:"matchParent",space:6},...actions.map(a=>mkPill(a,true))));
+  const root=Col({width:160,height:160,padding:12,borderRadius:20,clip:true,space:6,justifyContent:"spaceBetween",
+    linearGradient:{direction:"RightBottom",colors:theme.grad.map((c,i)=>[c,i/(theme.grad.length-1)])}},...kids);
+  // 解析绑定为绝对路径 + 从 sampleValue 收集数据行（数据插入）
+  const dataRows=[];
+  (function walk(n){
+    if(n.props){
+      for(const k of Object.keys(n.props)){
+        const v=n.props[k];
+        if(v&&typeof v==="object"&&v.bind){
+          const abs=cap.root+v.bind;
+          n.props[k]={path:abs};
+          if(!dataRows.find(r=>r[0]===abs)) dataRows.push([abs, cap.fields[v.bind].sample]);
+        }
+      }
+    }
+    (n.children||[]).forEach(walk);
+  })(root);
+  return {root, dataRows, theme};
+}
+
+/* ================================================================
+ *  阶段 5 — Compact DSL 序列化（确定性）
+ * ================================================================ */
+function toCompactDsl(root, dataRows){
+  const lines=[]; let n=0;
+  const emitted=new Set();
+  const idFor=node=>{ n++; return (node.comp==="Text"?"txt":node.comp==="Image"?"img":node.comp.toLowerCase())+n; };
+  (function emit(node, id){
+    const kids=(node.children||[]).filter(Boolean);
+    const kidIds=kids.map(k=>idFor(k));
+    const row=[id,node.comp,node.props||{}];
+    if(["Row","Column","List","Stack"].includes(node.comp)) row.push(kidIds);
+    lines.push(JSON.stringify(row));
+    // 数据行必须出现在首次使用该绑定的组件行之后
+    for(const k of Object.keys(node.props||{})){
+      const v=node.props[k];
+      if(v&&typeof v==="object"&&v.path&&!emitted.has(v.path)){
+        emitted.add(v.path);
+        const r=dataRows.find(r=>r[0]===v.path);
+        if(r) lines.push(JSON.stringify(r));
+      }
+    }
+    kids.forEach((k,i)=>emit(k,kidIds[i]));
+  })(root,"root");
+  return lines.join("\n");
+}
+
+/* ================================================================
+ *  阶段 6 — A2UI 转换（确定性）
+ * ================================================================ */
+const SEMANTIC=new Set(["content","src","label","onClick","accessibility"]);
+function toA2UI(compact, surfaceId){
+  const comps=[]; const data={};
+  compact.split("\n").forEach(line=>{
+    const row=JSON.parse(line);
+    if(typeof row[0]==="string"&&row[0].startsWith("/")){ setPointer(data,row[0],row[1]); return; }
+    const [id,component,props,children]=row;
+    const comp={id,component};
+    if(children) comp.children=children;
+    const styles={};
+    for(const [k,v] of Object.entries(props||{})){
+      if(SEMANTIC.has(k)) comp[k]=v;
+      else if(k==="space") styles.itemMargin=v;
+      else styles[k]=v;
+    }
+    if(Object.keys(styles).length) comp.styles=styles;
+    comps.push(comp);
+  });
+  return [
+    JSON.stringify({version:"v0.9",createSurface:{surfaceId,catalogId:"ohos.a2ui.extended.catalog.form"}}),
+    JSON.stringify({version:"v0.9",updateComponents:{surfaceId,components:comps}}),
+    JSON.stringify({version:"v0.9",updateDataModel:{surfaceId,path:"/",value:data}})
+  ].join("\n");
+}
+
+/* ================================================================
+ *  预览渲染器
+ * ================================================================ */
+function renderPreview(root, dataRows){
+  const dm={}; dataRows.forEach(r=>setPointer(dm,r[0],r[1]));
+  const getPath=p=>p.replace(/^\//,"").split("/").reduce((a,k)=>a&&a[k],dm);
+  function el(node){
+    const p=node.props||{};
+    const d=document.createElement("div");
+    const s=d.style;
+    if(node.comp==="Column"||node.comp==="Row"||node.comp==="Stack"){
+      s.display="flex"; s.flexDirection=node.comp==="Row"?"row":"column";
+      if(node.comp==="Stack") s.position="relative";
+      s.gap=(p.space!=null?p.space:0)+"px";
+      const jc={start:"flex-start",center:"center",end:"flex-end",spaceBetween:"space-between"};
+      if(p.justifyContent) s.justifyContent=jc[p.justifyContent]||p.justifyContent;
+      const ai={start:"flex-start",center:"center",end:"flex-end",top:"flex-start"};
+      if(p.alignItems) s.alignItems=ai[p.alignItems]||p.alignItems;
+    }
+    if(node.comp==="Text"){
+      const v=(p.content&&typeof p.content==="object")?getPath(p.content.path):p.content;
+      d.textContent=v==null?"—":String(v);
+      s.fontSize=(p.fontSize||14)+"px";
+      if(p.fontWeight) s.fontWeight=p.fontWeight==="bold"?"700":p.fontWeight;
+      s.color=cssColor(p.fontColor||"#FFFFFF");
+      s.whiteSpace="nowrap"; s.overflow="hidden"; s.textOverflow="ellipsis"; s.lineHeight="1.25";
+    }
+    if(node.comp==="Image"){ d.textContent="☀"; s.fontSize=(p.width||24)*0.8+"px"; s.lineHeight="1"; }
+    if(p.width==="matchParent") s.width="100%"; else if(typeof p.width==="number") s.width=p.width+"px";
+    if(p.height==="matchParent") s.height="100%"; else if(typeof p.height==="number") s.height=p.height+"px";
+    if(typeof p.padding==="number") s.padding=p.padding+"px";
+    if(p.borderRadius) s.borderRadius=p.borderRadius+"px";
+    if(p.backgroundColor) s.background=cssColor(p.backgroundColor);
+    if(p.layoutWeight) s.flex=String(p.layoutWeight);
+    if(p.clip) s.overflow="hidden";
+    if(p.linearGradient) s.background=`linear-gradient(135deg, ${p.linearGradient.colors.map(c=>cssColor(c[0])+" "+(c[1]*100)+"%").join(",")})`;
+    if(p.onClick){ s.cursor="pointer"; d.title="onClick → "+JSON.stringify(p.onClick[0].call); }
+    (node.children||[]).forEach(c=>d.appendChild(el(c)));
+    return d;
+  }
+  const box=document.getElementById("previewBox");
+  box.innerHTML=""; box.style.transform="scale(1.5)";
+  box.appendChild(el(root));
+}
+function cssColor(c){
+  if(typeof c!=="string"||!c.startsWith("#")) return c;
+  if(c.length===9){ const a=parseInt(c.slice(1,3),16)/255; const r=parseInt(c.slice(3,5),16),g=parseInt(c.slice(5,7),16),b2=parseInt(c.slice(7,9),16);
+    return `rgba(${r},${g},${b2},${a.toFixed(2)})`; }
+  return c;
+}
+
+/* ================================================================
+ *  提示词对比区：用当前输入实时渲染 3B 友好版提示词
+ * ================================================================ */
+function fmtMessages(msgs){
+  return msgs.map(m=>(m.role==="system"?"SYSTEM:":"USER:")+"\n"+m.content).join("\n\n");
+}
+function renderPromptCompare(){
+  const q=document.getElementById("userQuery").value.trim()||"（空）";
+  try{
+    const planMsgs=planPromptMessages(q);
+    const planText=fmtMessages(planMsgs);
+    document.getElementById("cmpPlanNew").textContent=planText;
+    document.getElementById("cmpPlanSize").textContent="共 "+planText.length+" 字符（≈"+Math.round(planText.length/2.2)+" token）";
+  }catch(e){ document.getElementById("cmpPlanNew").textContent="生成失败："+e.message; }
+  try{
+    const p=fallbackPlan(q);
+    const s=searchTemplates(p);
+    const opts=enumeratePlans(p,s);
+    const compMsgs=composePromptMessages(q,p,opts);
+    const compText=fmtMessages(compMsgs);
+    document.getElementById("cmpComposeNew").textContent=compText;
+    document.getElementById("cmpComposeSize").textContent="共 "+compText.length+" 字符（≈"+Math.round(compText.length/2.2)+" token，示例按关键词兜底方案枚举；实际运行时按第一层结果枚举）";
+  }catch(e){ document.getElementById("cmpComposeNew").textContent="生成失败："+e.message; }
+}
+renderPromptCompare();
+document.getElementById("userQuery").addEventListener("input", renderPromptCompare);
+
+/* ================================================================
+ *  编排器
+ * ================================================================ */
+async function llmStageWithRetry(stageKey, messages, validate, maxRetries, cfg){
+  let msgs=messages.slice();
+  for(let attempt=0; attempt<=maxRetries; attempt++){
+    const raw=await chatJSON(msgs, stageKey, cfg);
+    let obj, errs;
+    try{ obj=extractJSON(raw); errs=validate(obj); }
+    catch(e){ errs=[e.message]; }
+    if(errs.length===0) return {obj, attempts:attempt+1};
+    log(stageKey, `<div class="err-line">✗ 第 ${attempt+1} 次尝试被拒绝：${escapeHtml(errs.join("；"))}</div>`);
+    if(attempt<maxRetries)
+      msgs=[...msgs,{role:"assistant",content:raw},
+        {role:"user",content:"Your output was rejected: "+errs.join("; ")+". Answer again with ONE valid JSON object only, following the original rules."}];
+  }
+  return null;
+}
+
+document.getElementById("runBtn").addEventListener("click", runPipeline);
+async function runPipeline(){
+  const btn=document.getElementById("runBtn"); btn.disabled=true;
+  document.getElementById("globalStatus").textContent="";
+  document.getElementById("outputCard").style.display="none";
+  STAGES.forEach(s=>{ setBadge(s.key,"pending"); document.getElementById("badge-"+s.key).className="badge b-pending";
+    document.getElementById("log-"+s.key).innerHTML=""; document.getElementById("dur-"+s.key).textContent="";
+    document.getElementById("stage-"+s.key).classList.remove("open"); });
+  const query=document.getElementById("userQuery").value.trim();
+  const size=document.getElementById("cardSize").value;
+  try{
+    /* 阶段 0 — 主 Agent（云侧 LLM） */
+    let t0=performance.now(); setBadge("agent","running");
+    let sel, agentFellBack=false;
+    const resA=await llmStageWithRetry("agent", agentPromptMessages(query), validateAgent, 2, getCfg("cloud"))
+      .catch(e=>{ log("agent",`<div class="err-line">✗ 云侧模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
+    if(resA){ sel=resA.obj;
+      log("agent",`<div class="ok-line">✓ 第 ${resA.attempts} 次尝试通过校验</div>`); }
+    else { sel=fallbackAgent(query); agentFellBack=true;
+      log("agent",`<div class="warn-line">⚠ 云侧不可用，已用关键词兜底选择能力（真实链路此时由小艺框架决定重试或结束）</div>`); }
+    if(sel.suitable===false){
+      logJson("agent","主 Agent 判定不适合桌面卡片",sel);
+      setDur("agent",performance.now()-t0); setBadge("agent","done");
+      document.getElementById("globalStatus").innerHTML=
+        '<span style="color:var(--warn)">⚠ 主 Agent 判定该需求不适合做成桌面卡片：'+escapeHtml(sel.reason||"")+
+        '（真实链路在此结束，不调用生成微服务）</span>';
+      btn.disabled=false; return;
+    }
+    const selectedIds=sel.capabilities;
+    logJson("agent","主 Agent 选择结果（能力候选 + 卡片命名）",sel);
+    setDur("agent",performance.now()-t0);
+    setBadge("agent", agentFellBack?"fallback":"done");
+
+    /* 阶段 1 */
+    t0=performance.now(); setBadge("spec","running");
+    const taskSpec=buildTaskSpec(query,size,selectedIds);
+    logJson("spec","TaskSpec（只投影主 Agent 选中的能力）",taskSpec);
+    setDur("spec",performance.now()-t0); setBadge("spec","done");
+
+    /* 阶段 2 */
+    t0=performance.now(); setBadge("plan","running");
+    let plan, planFellBack=false;
+    const res=await llmStageWithRetry("plan", planPromptMessages(query,selectedIds,sel),
+      p=>validatePlan(p,selectedIds), 2).catch(e=>{
+      log("plan",`<div class="err-line">✗ 模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
+    if(res){ plan=res.obj; plan.fields=plan.fields||[]; plan.action=plan.action||[];
+      log("plan",`<div class="ok-line">✓ 第 ${res.attempts} 次尝试通过校验</div>`); }
+    else { plan=fallbackPlan(query,selectedIds); planFellBack=true;
+      log("plan",`<div class="warn-line">⚠ 已使用确定性关键词兜底（云侧此时回退到普通 Compact 模型路线）</div>`); }
+    logJson("plan","TemplateRetrievalQuery（已校验的第一层输出）",plan);
+    const search=searchTemplates(plan);
+    logJson("plan","确定性 Search 结果 — 候选模板",
+      {layoutCandidates:search.layouts.map(l=>l.id), templateCandidates:search.candidates.map(t=>t.id)});
+    setDur("plan",performance.now()-t0);
+    setBadge("plan", planFellBack?"fallback":"done");
+
+    /* 阶段 3 */
+    t0=performance.now(); setBadge("compose","running");
+    const options=enumeratePlans(plan,search);
+    logJson("compose","枚举出的合法方案（服务端生成，供 3B 模型做选择题）",
+      options.map((o,i)=>`${i+1}: ${o.tpl.id} + ${o.layout.id}`));
+    let choice, composeFellBack=false;
+    const res2=await llmStageWithRetry("compose", composePromptMessages(query,plan,options),
+      o=>{ const k=Number(o.plan); return (Number.isInteger(k)&&k>=1&&k<=options.length)?[]:[`plan 必须是 1..${options.length} 之间的整数`]; }, 2)
+      .catch(e=>{ log("compose",`<div class="err-line">✗ 模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
+    if(res2){ const k=Number(res2.obj.plan);
+      choice={...options[k-1], showIcon:!!res2.obj.showIcon};
+      log("compose",`<div class="ok-line">✓ 第 ${res2.attempts} 次尝试选中方案 ${k}</div>`); }
+    else { choice={...options[0], showIcon:false}; composeFellBack=true;
+      log("compose",`<div class="warn-line">⚠ 已兜底到方案 1（确定性默认值）</div>`); }
+    logJson("compose","组合决策",{template:choice.tpl.id, layout:choice.layout.id, showIcon:choice.showIcon,
+      actions:plan.action});
+    setDur("compose",performance.now()-t0);
+    setBadge("compose", composeFellBack?"fallback":"done");
+
+    /* 阶段 4 */
+    t0=performance.now(); setBadge("expand","running");
+    const {root,dataRows}=expandCard(plan,choice);
+    logJson("expand","插入的数据行（取自 TaskSpec sampleValue — 即确定性的“数据插入”）",dataRows);
+    setDur("expand",performance.now()-t0); setBadge("expand","done");
+
+    /* 阶段 5 */
+    t0=performance.now(); setBadge("compact","running");
+    const compact=toCompactDsl(root,dataRows);
+    document.getElementById("outCompact").textContent=compact;
+    log("compact",`<div class="ok-line">✓ 生成 ${compact.split("\n").length} 行 NDJSON — 见“最终输出 → Compact DSL”</div>`);
+    setDur("compact",performance.now()-t0); setBadge("compact","done");
+
+    /* 阶段 6 */
+    t0=performance.now(); setBadge("a2ui","running");
+    const a2ui=toA2UI(compact,"playground-"+size+"-"+Date.now().toString(36));
+    document.getElementById("outA2ui").textContent=a2ui;
+    renderPreview(root,dataRows);
+    log("a2ui",`<div class="ok-line">✓ 已生成三段 A2UI — 见“最终输出 → A2UI / 预览”</div>`);
+    setDur("a2ui",performance.now()-t0); setBadge("a2ui","done");
+
+    document.getElementById("outputCard").style.display="";
+    document.getElementById("globalStatus").innerHTML='<span style="color:var(--ok)">✓ 管线执行完成 — 请在右侧查看最终输出</span>';
+  }catch(e){
+    const running=STAGES.find(s=>document.getElementById("badge-"+s.key).classList.contains("b-running"));
+    if(running){ setBadge(running.key,"failed"); log(running.key,`<div class="err-line">✗ ${escapeHtml(e.message)}</div>`); }
+    document.getElementById("globalStatus").innerHTML='<span style="color:var(--err)">✗ '+escapeHtml(e.message)+"</span>";
+  }finally{ btn.disabled=false; }
+}
+</script>
+</body>
+</html>
