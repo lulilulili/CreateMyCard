@@ -77,3 +77,6 @@ widget_service/cloud/workspace/
 Q*.json
 ux*.txt
 ux*.txt
+training/generated/
+__pycache__/
+*.pyc
