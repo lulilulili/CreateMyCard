@@ -80,6 +80,15 @@
   .cmp-col ul li{margin:3px 0}
   .cmp-sub{font-size:13px;font-weight:600;margin:16px 0 4px;color:var(--txt)}
   @media (max-width:900px){.cmp-grid{grid-template-columns:1fr}}
+  .batch-toolbar{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+  .batch-toolbar label{flex:1;min-width:150px;margin:0}
+  .batch-toolbar button{background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
+  .batch-toolbar button.primary{background:var(--acc);color:#04101f;border-color:var(--acc)}
+  .batch-results{display:grid;gap:8px;margin-top:12px}
+  .batch-item{border:1px solid var(--line);border-radius:9px;padding:10px;background:var(--panel2);cursor:pointer}
+  .batch-item.ok{border-left:3px solid var(--ok)} .batch-item.fail{border-left:3px solid var(--err)}
+  .batch-item-head{display:flex;gap:8px;align-items:center}
+  .batch-item-head b{flex:1} .batch-ok{color:var(--ok)} .batch-fail{color:var(--err)}
 </style>
 </head>
 <body>
@@ -148,6 +157,19 @@
     <select id="cardSize"><option value="2x2" selected>2x2（模板路由支持）</option></select>
     <button class="btn-primary" id="runBtn">▶ 生成卡片</button>
     <div class="note" id="globalStatus"></div>
+  </div>
+
+  <div class="card" id="batchCard">
+    <h2>训练集批量筛查</h2>
+    <div class="note">按训练集序号逐条运行，支持原始 Prompt 调模型，也支持读取最后的 JSON 直接走确定性模板与渲染流程。单条失败不会中断后续样本。</div>
+    <div class="batch-toolbar">
+      <label>数据集<select id="batchSplit"><option value="train">train</option><option value="dev">dev</option><option value="test">test</option></select></label>
+      <label>运行模式<select id="batchMode"><option value="json">最后 JSON（不调用模型）</option><option value="prompt">原始 Prompt（调用当前模型）</option></select></label>
+      <label>序号<input id="batchIndices" type="text" value="1-5" placeholder="例如 1,3,5-10"></label>
+      <button class="primary" id="batchRun">▶ 开始</button><button id="batchStop">■ 停止</button><button id="batchClear">清空</button>
+    </div>
+    <div class="note" id="batchDatasetMeta">正在读取数据集…</div><div class="note" id="batchStatus"></div>
+    <div class="batch-results" id="batchResults"></div>
   </div>
 
   <div class="card">
@@ -1076,14 +1098,137 @@ async function runPipeline(){
     log("a2ui",`<div class="ok-line">✓ 已生成三段 A2UI — 见“最终输出 → A2UI / 预览”</div>`);
     setDur("a2ui",performance.now()-t0); setBadge("a2ui","done");
 
+    window.lastPipelineResult={root,dataRows,compact,a2ui,plan,choice,query};
     document.getElementById("outputCard").style.display="";
     document.getElementById("globalStatus").innerHTML='<span style="color:var(--ok)">✓ 管线执行完成 — 请在右侧查看最终输出</span>';
+    return window.lastPipelineResult;
   }catch(e){
     const running=STAGES.find(s=>document.getElementById("badge-"+s.key).classList.contains("b-running"));
     if(running){ setBadge(running.key,"failed"); log(running.key,`<div class="err-line">✗ ${escapeHtml(e.message)}</div>`); }
     document.getElementById("globalStatus").innerHTML='<span style="color:var(--err)">✗ '+escapeHtml(e.message)+"</span>";
   }finally{ btn.disabled=false; }
 }
+
+let batchRows=[], batchSecondByRequest=new Map(), batchFirstByCase=new Map(), batchStopRequested=false;
+function batchRequest(row){
+  const user=((row.messages||[]).find(m=>m.role==="user")||{}).content||"";
+  for(const marker of ["USER REQUEST:","用户="]) if(user.includes(marker))
+    return user.split(marker).pop().trim().split(/\r?\n/)[0].trim();
+  return user.trim();
+}
+function batchAssistant(row){
+  const msg=[...(row.messages||[])].reverse().find(m=>m.role==="assistant");
+  if(!msg) throw new Error("样本缺少 assistant JSON");
+  return JSON.parse(msg.content);
+}
+async function loadBatchDataset(){
+  const split=document.getElementById("batchSplit").value;
+  const res=await fetch("/training/datasets/cc-3b-v1/cc_"+split+".jsonl");
+  if(!res.ok) throw new Error("读取数据集失败 HTTP "+res.status);
+  batchRows=(await res.text()).split(/\r?\n/).filter(Boolean).map(JSON.parse);
+  batchSecondByRequest=new Map(batchRows.filter(r=>r.task==="second_layer").map(r=>[batchRequest(r),r]));
+  batchFirstByCase=new Map(batchRows.filter(r=>r.task==="first_layer").map(r=>[r.caseId,r]));
+  document.getElementById("batchDatasetMeta").textContent=split+" 共 "+batchRows.length+" 条；支持 1,3,5-10。第二层样本需关联第一层 JSON。";
+}
+document.getElementById("batchSplit").addEventListener("change",()=>loadBatchDataset().catch(e=>document.getElementById("batchDatasetMeta").textContent="✗ "+e.message));
+document.getElementById("batchRun").addEventListener("click",runBatchCC);
+document.getElementById("batchStop").addEventListener("click",()=>{batchStopRequested=true;document.getElementById("batchStatus").textContent="正在停止：当前条目完成后结束…";});
+document.getElementById("batchClear").addEventListener("click",()=>{document.getElementById("batchResults").innerHTML="";document.getElementById("batchStatus").textContent="";});
+function batchIndices(text,total){
+  const out=[],seen=new Set();
+  for(const raw of text.replaceAll("，",",").split(",")){
+    const token=raw.trim();if(!token)continue;let a,b;
+    if(token.includes("-")){[a,b]=token.split("-").map(Number);if(a>b)[a,b]=[b,a];}
+    else{a=Number(token);b=a;}
+    if(!Number.isInteger(a)||!Number.isInteger(b)||a<1||b>total)throw new Error("序号超出范围："+token);
+    for(let i=a;i<=b;i++)if(!seen.has(i)){seen.add(i);out.push(i);}
+  }
+  if(!out.length)throw new Error("请输入至少一个序号");
+  if(out.length>100)throw new Error("单次最多筛查 100 条");
+  return out;
+}
+function genericBatchCard(plan,row){
+  const user=((row.messages||[]).find(m=>m.role==="user")||{}).content||"";
+  const capLine=(user.match(/CAPABILITIES:\s*\n([^\n]+)/)||[])[1]||plan.capability||"信息";
+  const title=(capLine.split("(")[1]||capLine).replace(")","").slice(0,18);
+  const cap=REGISTRY.capabilities[plan.capability];
+  const fields=(plan.fields||[]).slice(0,6);
+  const root=Col({width:160,height:160,padding:12,borderRadius:20,clip:true,space:6,justifyContent:"spaceBetween",backgroundColor:"#253452"},
+    Txt(plan.theme&&REGISTRY.themes[plan.theme]?title:"信息卡",{fontSize:13,fontWeight:"bold",fontColor:"#FFFFFF"}),
+    ...fields.map((path,i)=>Txt({path:"/batch"+path},{fontSize:i===0?26:12,fontWeight:i===0?"bold":"500",fontColor:"#FFFFFF",maxLines:1})));
+  const dataRows=fields.map((path,i)=>["/batch"+path, batchSample(path)]);
+  return {root,dataRows,compact:toCompactDsl(root,dataRows),request:batchRequest(row),generic:true};
+}
+function batchSample(path){
+  const leaf=path.split("/").pop().toLowerCase();
+  if(/percent|rate|level|score|count|days|steps|temperature|calories|duration/.test(leaf))return 68;
+  if(/time|date|updated|start|end/.test(leaf))return "今天 09:00";
+  if(/state|status|condition|location|title|name|type/.test(leaf))return "示例数据";
+  return "示例数据";
+}
+function batchPlanFromRow(row){
+  const first=row.task==="second_layer"?batchFirstByCase.get(row.caseId):row;
+  if(!first)throw new Error("第二层样本找不到同 case 的第一层样本");
+  const plan=batchAssistant(first),second=row.task==="second_layer"?row:batchSecondByRequest.get(batchRequest(row));
+  try{
+    const search=searchTemplates(plan),options=enumeratePlans(plan,search);
+    let number=second?Number(batchAssistant(second).plan):1;
+    if(!Number.isInteger(number)||number<1||number>options.length)number=1;
+    const choice={...options[number-1],showIcon:false},expanded=expandCard(plan,choice);
+    const compact=toCompactDsl(expanded.root,expanded.dataRows);
+    return {plan,choice,root:expanded.root,dataRows:expanded.dataRows,compact,
+      a2ui:toA2UI(compact,"batch-"+Date.now().toString(36)),request:batchRequest(row),generic:false};
+  }catch(error){
+    const fallback=genericBatchCard(plan,first);
+    fallback.a2ui=toA2UI(fallback.compact,"batch-"+Date.now().toString(36));
+    fallback.fallback=error.message;
+    return {plan,...fallback,request:batchRequest(row)};
+  }
+}
+async function batchPromptFromRow(row){
+  const first=row.task==="second_layer"?batchFirstByCase.get(row.caseId):row;
+  if(!first)throw new Error("找不到同 case 的第一层样本");
+  const firstRaw=await chatJSON((first.messages||[]).filter(m=>m.role==="system"||m.role==="user"),"batch-plan",getCfg("device"));
+  const plan=extractJSON(firstRaw),planErrors=validatePlan(plan,Object.keys(REGISTRY.capabilities));
+  if(planErrors.length)throw new Error("第一层校验失败："+planErrors.join("；"));
+  const search=searchTemplates(plan),options=enumeratePlans(plan,search);
+  let number=1;
+  const second=batchSecondByRequest.get(batchRequest(row));
+  if(second){
+    const raw=await chatJSON((second.messages||[]).filter(m=>m.role==="system"||m.role==="user"),"batch-compose",getCfg("device"));
+    number=Number(extractJSON(raw).plan);
+  }else{
+    const raw=await chatJSON(composePromptMessages(batchRequest(row),plan,options),"batch-compose",getCfg("device"));
+    number=Number(extractJSON(raw).plan);
+  }
+  if(!Number.isInteger(number)||number<1||number>options.length)throw new Error("模型选择的方案序号无效："+number);
+  const choice={...options[number-1],showIcon:false},expanded=expandCard(plan,choice),compact=toCompactDsl(expanded.root,expanded.dataRows);
+  return {plan,choice,root:expanded.root,dataRows:expanded.dataRows,compact,a2ui:toA2UI(compact,"batch-raw-"+Date.now().toString(36)),request:batchRequest(row),raw:true};
+}
+function batchShowResult(item){
+  const out=item.result;
+  if(out.root){outCompact.textContent=out.compact;outA2ui.textContent=out.a2ui;renderPreview(out.root,out.dataRows);}
+  else if(out.protocolOutputs){outCompact.textContent=out.protocolOutputs.dsl.code||"";outA2ui.textContent=out.protocolOutputs.a2ui.ndjson||"";previewBox.innerHTML="";const f=document.createElement("iframe");f.style="width:220px;height:220px;border:0;background:transparent";f.srcdoc="<body style='margin:4px;background:transparent'>"+out.code+"</body>";previewBox.appendChild(f);}
+  outputCard.style.display="";globalStatus.innerHTML='<span style="color:var(--ok)">✓ 已加载批量样本 '+item.index+'</span>';
+}
+function batchAddItem(item){
+  const el=document.createElement("div");el.className="batch-item "+(item.ok?"ok":"fail");
+  el.innerHTML='<div class="batch-item-head"><b>#'+item.index+" · "+escapeHtml(item.task||"")+'</b><span class="'+(item.ok?"batch-ok":"batch-fail")+'">'+(item.ok?"✓ 成功":"✗ 失败")+'</span></div><div class="note">'+escapeHtml(item.request||"")+'</div>'+(item.ok?'<div class="note">模板/布局：'+escapeHtml(item.template||"已生成")+'；点击查看输出</div>':'<div class="err-line">'+escapeHtml(item.error||"未知错误")+"</div>");
+  if(item.ok)el.onclick=()=>batchShowResult(item);batchResults.appendChild(el);
+}
+async function runBatchCC(){
+  if(!batchRows.length)await loadBatchDataset();
+  const indexes=batchIndices(document.getElementById('batchIndices').value,batchRows.length),mode=batchMode.value,btn=document.getElementById("batchRun");
+  btn.disabled=true;batchStopRequested=false;batchResults.innerHTML="";let ok=0,fail=0;
+  try{for(let pos=0;pos<indexes.length;pos++){if(batchStopRequested)break;const index=indexes[pos],row=batchRows[index-1],request=batchRequest(row);batchStatus.textContent="运行中 "+(pos+1)+"/"+indexes.length+"：#"+index;
+    try{let result;if(mode==="json")result=batchPlanFromRow(row);else result=await batchPromptFromRow(row);
+      batchAddItem({index,task:row.task,request,ok:true,result,template:result.layout?.templateId||result.choice?.tpl?.id||"—"});ok++;
+    }catch(e){batchAddItem({index,task:row.task,request,ok:false,error:e.message});fail++;}}
+    batchStatus.textContent="完成：成功 "+ok+"，失败 "+fail+"，共处理 "+(ok+fail)+"/"+indexes.length+(batchStopRequested?"（已停止）":"");
+  }catch(e){batchStatus.textContent="✗ "+e.message;}finally{btn.disabled=false;}
+}
+loadBatchDataset().catch(e=>batchDatasetMeta.textContent="✗ "+e.message);
+
 </script>
 </body>
 </html>
