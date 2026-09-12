@@ -53,6 +53,8 @@ def load_registry() -> dict:
     themes = {}
     for theme_path in sorted((SOURCE / "themes").glob("*/theme.json")):
         theme = _read(theme_path)
+        if theme.get("supportedLayoutIds"):
+            continue  # layout-scoped 主题首层 Search 会拒绝，不进候选与标签
         themes[theme["themeProfileId"]] = {
             "themeId": theme["themeProfileId"],
             "description": theme.get("description", ""),

@@ -1,0 +1,29 @@
+{
+  "total": 3086,
+  "byTask": {
+    "first_layer": 2265,
+    "second_layer": 821
+  },
+  "firstLayerByVariant": {
+    "full": 1691,
+    "domainOnly": 191,
+    "subset": 383
+  },
+  "byProvider": {
+    "app-usage": 164,
+    "battery": 812,
+    "calendar": 453,
+    "countdown": 114,
+    "earphone": 121,
+    "health-sport": 889,
+    "system-memory": 155,
+    "weather": 378
+  },
+  "trainCombos": 96,
+  "contract": {
+    "firstLayerPrompt": "cmc-3b-first-layer/1.0",
+    "secondLayerPrompt": "cmc-3b-second-layer/1.0",
+    "agentPrompt": "cmc-3b-agent/1.0",
+    "datasetSchema": "cmc-training-case/1.0"
+  }
+}
