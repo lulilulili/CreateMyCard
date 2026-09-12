@@ -85,10 +85,12 @@
   .batch-toolbar button{background:var(--panel2);border:1px solid var(--line);color:var(--txt)}
   .batch-toolbar button.primary{background:var(--acc);color:#04101f;border-color:var(--acc)}
   .batch-results{display:grid;gap:8px;margin-top:12px}
-  .batch-item{border:1px solid var(--line);border-radius:9px;padding:10px;background:var(--panel2);cursor:pointer}
+  .batch-item{border:1px solid var(--line);border-radius:9px;padding:10px;background:var(--panel2)}
   .batch-item.ok{border-left:3px solid var(--ok)} .batch-item.fail{border-left:3px solid var(--err)}
   .batch-item-head{display:flex;gap:8px;align-items:center}
   .batch-item-head b{flex:1} .batch-ok{color:var(--ok)} .batch-fail{color:var(--err)}
+  .batch-view{margin-top:8px;background:var(--acc);color:#04101f;border:1px solid var(--acc);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .batch-view:hover{filter:brightness(1.12)}
 </style>
 </head>
 <body>
@@ -1207,14 +1209,19 @@ async function batchPromptFromRow(row){
 }
 function batchShowResult(item){
   const out=item.result;
-  if(out.root){outCompact.textContent=out.compact;outA2ui.textContent=out.a2ui;renderPreview(out.root,out.dataRows);}
-  else if(out.protocolOutputs){outCompact.textContent=out.protocolOutputs.dsl.code||"";outA2ui.textContent=out.protocolOutputs.a2ui.ndjson||"";previewBox.innerHTML="";const f=document.createElement("iframe");f.style="width:220px;height:220px;border:0;background:transparent";f.srcdoc="<body style='margin:4px;background:transparent'>"+out.code+"</body>";previewBox.appendChild(f);}
-  outputCard.style.display="";globalStatus.innerHTML='<span style="color:var(--ok)">✓ 已加载批量样本 '+item.index+'</span>';
+  const compactEl=document.getElementById("outCompact"),a2uiEl=document.getElementById("outA2ui"),previewEl=document.getElementById("previewBox"),outputEl=document.getElementById("outputCard"),statusEl=document.getElementById("globalStatus");
+  if(out.root){compactEl.textContent=out.compact||"";a2uiEl.textContent=out.a2ui||"";renderPreview(out.root,out.dataRows||[]);}
+  else if(out.protocolOutputs){compactEl.textContent=out.protocolOutputs.dsl?.code||"";a2uiEl.textContent=out.protocolOutputs.a2ui?.ndjson||"";previewEl.innerHTML="";const f=document.createElement("iframe");f.style="width:220px;height:220px;border:0;background:transparent";f.srcdoc="<body style='margin:4px;background:transparent'>"+(out.code||"")+"</body>";previewEl.appendChild(f);}
+  outputEl.style.display="";statusEl.innerHTML='<span style="color:var(--ok)">✓ 已加载批量样本 '+item.index+'</span>';
+  const previewTab=document.querySelector('.tabs .tab[data-tab="preview"]');
+  if(previewTab)previewTab.click();
+  outputEl.scrollIntoView({behavior:"smooth",block:"start"});
 }
 function batchAddItem(item){
   const el=document.createElement("div");el.className="batch-item "+(item.ok?"ok":"fail");
-  el.innerHTML='<div class="batch-item-head"><b>#'+item.index+" · "+escapeHtml(item.task||"")+'</b><span class="'+(item.ok?"batch-ok":"batch-fail")+'">'+(item.ok?"✓ 成功":"✗ 失败")+'</span></div><div class="note">'+escapeHtml(item.request||"")+'</div>'+(item.ok?'<div class="note">模板/布局：'+escapeHtml(item.template||"已生成")+'；点击查看输出</div>':'<div class="err-line">'+escapeHtml(item.error||"未知错误")+"</div>");
-  if(item.ok)el.onclick=()=>batchShowResult(item);batchResults.appendChild(el);
+  el.innerHTML='<div class="batch-item-head"><b>#'+item.index+" · "+escapeHtml(item.task||"")+'</b><span class="'+(item.ok?"batch-ok":"batch-fail")+'">'+(item.ok?"✓ 成功":"✗ 失败")+'</span></div><div class="note">'+escapeHtml(item.request||"")+'</div>'+(item.ok?'<div class="note">模板/布局：'+escapeHtml(item.template||"已生成")+'</div><button type="button" class="batch-view">查看输出</button>':'<div class="err-line">'+escapeHtml(item.error||"未知错误")+"</div>");
+  if(item.ok)el.querySelector(".batch-view").addEventListener("click",()=>batchShowResult(item));
+  document.getElementById("batchResults").appendChild(el);
 }
 async function runBatchCC(){
   if(!batchRows.length)await loadBatchDataset();
