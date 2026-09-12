@@ -1,47 +1,47 @@
 @echo off
 title GenUI 3B Playground Launcher
-cd /d "%~dp0"
+cd /d "%~dp0.."
 set "SYS32=%SystemRoot%\System32"
 
 echo ==============================================
-echo   GenUI ¿¨Æ¬Éú³ÉÑÝÁ·³¡ - Ò»¼üÆô¶¯
+echo   GenUI ï¿½ï¿½Æ¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ - Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 echo ==============================================
 
-rem ---- [1/3] È·±£ Ollama ÔÚÔËÐÐ£¨±¾»á»°Í¬Ê±·ÅÐÐ¿çÓò£© ----
+rem ---- [1/3] È·ï¿½ï¿½ Ollama ï¿½ï¿½ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½á»°Í¬Ê±ï¿½ï¿½ï¿½Ð¿ï¿½ï¿½ï¿½ ----
 set OLLAMA_ORIGINS=*
 "%SYS32%\curl.exe" -s --max-time 3 http://localhost:11434/api/version >nul 2>&1
 if errorlevel 1 (
-    echo [1/3] Ollama Î´ÔËÐÐ£¬ÕýÔÚÆô¶¯...
+    echo [1/3] Ollama Î´ï¿½ï¿½ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
     start "" "%LOCALAPPDATA%\Programs\Ollama\ollama app.exe"
     "%SYS32%\ping.exe" -n 7 127.0.0.1 >nul
 ) else (
-    echo [1/3] Ollama ÒÑÔÚÔËÐÐ
+    echo [1/3] Ollama ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 )
 
-rem ---- ¼ì²éÄ¬ÈÏÄ£ÐÍÊÇ·ñÒÑÀ­È¡ ----
+rem ---- ï¿½ï¿½ï¿½Ä¬ï¿½ï¿½Ä£ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½È¡ ----
 "%SYS32%\curl.exe" -s --max-time 5 http://localhost:11434/api/tags | "%SYS32%\findstr.exe" /C:"qwen2.5:3b" >nul 2>&1
 if errorlevel 1 (
-    echo [ÌáÊ¾] Î´¼ì²âµ½ qwen2.5:3b£¬ÈçÐèÄ¬ÈÏÄ£ÐÍÇëÏÈÖ´ÐÐ: ollama pull qwen2.5:3b
+    echo [ï¿½ï¿½Ê¾] Î´ï¿½ï¿½âµ½ qwen2.5:3bï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¬ï¿½ï¿½Ä£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½: ollama pull qwen2.5:3b
 ) else (
-    echo       Ä£ÐÍ qwen2.5:3b ÒÑ¾ÍÐ÷
+    echo       Ä£ï¿½ï¿½ qwen2.5:3b ï¿½Ñ¾ï¿½ï¿½ï¿½
 )
 
-rem ---- [2/3] Æô¶¯±¾µØÒ³Ãæ·þÎñ ----
+rem ---- [2/3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½ ----
 "%SYS32%\netstat.exe" -ano | "%SYS32%\findstr.exe" /C:":8630 " | "%SYS32%\findstr.exe" LISTENING >nul 2>&1
 if errorlevel 1 (
-    echo [2/3] Æô¶¯Ò³Ãæ·þÎñ http://localhost:8630 ...
-    start "GenUI Playground Server" /min cmd /c "cd /d "%~dp0" && python -m http.server 8630"
+    echo [2/3] ï¿½ï¿½ï¿½ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ï¿½ http://localhost:8630 ...
+    start "GenUI Playground Server" /min cmd /c "cd /d "%~dp0.." && python -m http.server 8630"
     "%SYS32%\ping.exe" -n 3 127.0.0.1 >nul
 ) else (
-    echo [2/3] Ò³Ãæ·þÎñÒÑÔÚÔËÐÐ
+    echo [2/3] Ò³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 )
 
-rem ---- [3/3] ´ò¿ªä¯ÀÀÆ÷ ----
-echo [3/3] ´ò¿ªä¯ÀÀÆ÷...
-start "" "http://localhost:8630/genui_3b_playground.html"
+rem ---- [3/3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ----
+echo [3/3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
+start "" "http://localhost:8630/playground/genui_3b_playground.html"
 
 echo.
-echo Íê³É¡£¹Ø±Õ±¾´°¿Ú²»Ó°ÏìÊ¹ÓÃ£»Ò³Ãæ·þÎñ´°¿ÚÒÑ×îÐ¡»¯£¬
-echo ²»ÔÙÊ¹ÓÃÊ±¹Øµô±êÌâÎª "GenUI Playground Server" µÄ´°¿Ú¼´¿É¡£
+echo ï¿½ï¿½É¡ï¿½ï¿½Ø±Õ±ï¿½ï¿½ï¿½ï¿½Ú²ï¿½Ó°ï¿½ï¿½Ê¹ï¿½Ã£ï¿½Ò³ï¿½ï¿½ï¿½ï¿½ñ´°¿ï¿½ï¿½ï¿½ï¿½ï¿½Ð¡ï¿½ï¿½ï¿½ï¿½
+echo ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½Ê±ï¿½Øµï¿½ï¿½ï¿½ï¿½ï¿½Îª "GenUI Playground Server" ï¿½Ä´ï¿½ï¿½Ú¼ï¿½ï¿½É¡ï¿½
 "%SYS32%\ping.exe" -n 6 127.0.0.1 >nul
 exit
