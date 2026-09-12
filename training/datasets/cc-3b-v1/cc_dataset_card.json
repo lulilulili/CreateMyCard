@@ -1,0 +1,35 @@
+{
+  "dataset": "cc-3b-sft-v1",
+  "source": "CreateMyCard provider gallery",
+  "contract": {
+    "firstLayerPrompt": "cmc-3b-first-layer/1.0",
+    "secondLayerPrompt": "cmc-3b-second-layer/1.0",
+    "agentPrompt": "cmc-3b-agent/1.0",
+    "datasetSchema": "cmc-training-case/1.0"
+  },
+  "generation": "deterministic labels + natural-language variants",
+  "middle_search": "run for gold plan only; never included in model input",
+  "split": {
+    "train": 2744,
+    "dev": 1010,
+    "test": 446
+  },
+  "counts": {
+    "total": 4200,
+    "first_layer": 3360,
+    "second_layer": 840
+  },
+  "held_combos": [
+    "ActivityOverview|single-two-actions",
+    "BluetoothDeviceOverview|single-two-actions",
+    "CalendarOverview|single-two-actions",
+    "HeartRateOverview|single-content",
+    "WeatherOverview|single-one-action",
+    "WorkoutOverview|single-two-actions"
+  ],
+  "frozen_taskspec": 20,
+  "limitations": [
+    "synthetic paraphrases need human spot review",
+    "gallery labels are template-domain data"
+  ]
+}
