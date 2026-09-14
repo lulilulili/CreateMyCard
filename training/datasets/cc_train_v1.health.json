@@ -1,0 +1,13 @@
+{
+  "dataset": "cc_train_v1 (v1.1)",
+  "firstLayerN": 2248,
+  "L1_exact_dup": 0,
+  "L2_near_dup_pairs": 494,
+  "L2_near_dup_rate": 0.2198,
+  "L2_cross_answer_conflicts": 0,
+  "L2_conflict_examples": [],
+  "L3_frozen_exact": 0,
+  "L3_frozen_near060": 0,
+  "L4_distinct_answers": 157,
+  "L4_top_answer_share": 0.024
+}

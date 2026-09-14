@@ -1,25 +1,22 @@
 {
-  "total": 3086,
+  "datasetVersion": "1.1",
+  "total": 3063,
   "byTask": {
-    "first_layer": 2265,
-    "second_layer": 821
+    "first_layer": 2248,
+    "second_layer": 815
   },
   "firstLayerByVariant": {
-    "full": 1691,
-    "domainOnly": 191,
-    "subset": 383
-  },
-  "byProvider": {
-    "app-usage": 164,
-    "battery": 812,
-    "calendar": 453,
-    "countdown": 114,
-    "earphone": 121,
-    "health-sport": 889,
-    "system-memory": 155,
-    "weather": 378
+    "full": 1680,
+    "domainOnly": 189,
+    "subset": 379
   },
   "trainCombos": 96,
+  "v11Changes": {
+    "jargonDropped": 8,
+    "conflictDropped": 7,
+    "stylePunctuationFixed": true
+  },
+  "health": "PASS(见 cc_train_v1.health.json)",
   "contract": {
     "firstLayerPrompt": "cmc-3b-first-layer/1.0",
     "secondLayerPrompt": "cmc-3b-second-layer/1.0",

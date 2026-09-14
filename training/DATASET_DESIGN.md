@@ -63,12 +63,12 @@ second_layer 样本仅由 full 变体派生（subset/domainOnly 下"最优方案
 
 | 指标 | 数值 |
 |---|---|
-| 总样本 | **3086** |
-| first_layer / second_layer | 2265 / 821 |
+| 总样本 | **3063**（v1.1） |
+| first_layer / second_layer | 2248 / 815 |
 | first_layer 按变体 | full 1691 · subset 383 · domainOnly 191 |
 | 训练组合 | 96（gallery 118 − 留出 22） |
 | 工作流保留 query | 1698（审校代理已过滤越界/近重复） |
-| 归一化去重丢弃 / 冻结措辞碰撞 | 4 / 0 |
+| 去重/术语/冲突丢弃 | 精确 4 · 实现术语 8 · 跨答案冲突 7（守卫内建） |
 | 生成方式 | 444 代理（96 生成 + 96 审校 + GD 侧共用一次工作流），零失败 |
 
 明细见 `cc_train_v1.stats.json`；逐行溯源见 audit 文件。
@@ -90,3 +90,11 @@ second_layer 样本仅由 full 变体派生（subset/domainOnly 下"最优方案
 - query 由 LLM 反写并经审校代理过滤，仍建议抽 5% 人工复核（审计文件按
   caseId 抽即可）；
 - 未包含拒绝/边界类样本（CC 第一层契约无 reject 输出，场景门禁在主 Agent）。
+
+
+### v1.1 变更（2026-09-12）
+
+- 风格后缀先剥句尾标点（修"。，谢谢"）；
+- JARGON_MARKERS 实现术语过滤（8 条弃用）；
+- 跨答案冲突守卫内建于构建器（近重复≥0.8 且标签不同→弃，7 条）；
+- 新增 training/dataset_health.py 四层检查：**PASS**（冲突 0/冻结污染 0）。

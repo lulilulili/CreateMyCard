@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 
 from .assets import REPO_ROOT, load_registry
+from .dataset_health import _bigrams, _jaccard
 from .prompts import (PROMPT_MANIFEST, SYSTEM_FIRST_LAYER, SYSTEM_SECOND_LAYER,
                       build_first_layer_user, build_second_layer_user)
 from .validators import search_templates
@@ -31,12 +32,21 @@ def _normalize(text: str) -> str:
     return re.sub(r"[\s，。！？,.!?、“”\"']", "", text)
 
 
-# 确定性风格轴（只动表达不动语义；仅用于 full 变体的 first_layer 扩增）
-STYLES = (lambda q: ("麻烦" + q + "，谢谢") if q.startswith(("帮我", "给我", "替我"))
-          else "麻烦帮我" + q + "，谢谢",
-          lambda q: "哎，" + q + "呗",
+# 确定性风格轴（只动表达不动语义；仅用于 full 变体的 first_layer 扩增）。
+# 后缀类风格先剥掉句尾标点，避免产生"。，谢谢"。
+def _strip_end(query: str) -> str:
+    return query.rstrip("。！？!?.")
+
+
+STYLES = (lambda q: ("麻烦" + _strip_end(q) + "，谢谢") if q.startswith(("帮我", "给我", "替我"))
+          else "麻烦帮我" + _strip_end(q) + "，谢谢",
+          lambda q: "哎，" + _strip_end(q) + "呗",
           lambda q: "我赶时间，" + q,
-          lambda q: q + "，现在就要")
+          lambda q: _strip_end(q) + "，现在就要")
+
+# v1.1：实现语言残留过滤——用户不会说的 schema 术语，含之即弃（审计中记数）
+JARGON_MARKERS = ("带单位", "文本形式", "字段", "归一化", "端侧", "schema", "Schema",
+                  "枚举", "已包含", "格式化")
 
 
 def main() -> int:
@@ -55,6 +65,21 @@ def main() -> int:
     audit_out = DATASETS / "cc_train_v1.audit.jsonl"
     seen, written, stats = set(), 0, {"first_layer": 0, "second_layer": 0,
                                       "dedup_dropped": 0, "frozen_collision": 0}
+    # 跨答案冲突守卫：近重复(≥0.8)且标签不同的后到 query 直接弃（毒样本）
+    kept_grams = []
+
+    def conflicts_with_kept(norm, answer):
+        grams = _bigrams(norm)
+        for other_norm, other_grams, other_answer in kept_grams:
+            if other_answer == answer:
+                continue
+            if abs(len(norm) - len(other_norm)) > max(len(norm), len(other_norm)) * 0.5:
+                continue
+            if _jaccard(grams, other_grams) >= 0.80:
+                return True
+        kept_grams.append((norm, grams, answer))
+        return False
+
     with out.open("w", encoding="utf-8") as sft, audit_out.open("w", encoding="utf-8") as audit:
         for row in payload:
             case = cases[row["caseId"]]
@@ -71,6 +96,9 @@ def main() -> int:
                     continue
                 for query_index, query in enumerate(queries):
                     query = str(query).strip()
+                    if any(marker in query for marker in JARGON_MARKERS):
+                        stats["jargon_dropped"] = stats.get("jargon_dropped", 0) + 1
+                        continue
                     texts = [query]
                     if variant == "full" and query_index % 2 == 0:
                         texts.append(STYLES[query_index % len(STYLES)](query))
@@ -87,11 +115,15 @@ def main() -> int:
                         seen.add(key)
                         target = {"theme": theme, "capability": case["capabilityId"],
                                   "fields": fields_label, "action": case["eventIds"]}
+                        answer_text = json.dumps(target, ensure_ascii=False)
+                        if conflicts_with_kept(key, answer_text):
+                            stats["conflict_dropped"] = stats.get("conflict_dropped", 0) + 1
+                            continue
                         case_for_prompt = dict(case, userQuery=text)
                         sft.write(json.dumps({"messages": [
                             {"role": "system", "content": SYSTEM_FIRST_LAYER},
                             {"role": "user", "content": build_first_layer_user(case_for_prompt, registry)},
-                            {"role": "assistant", "content": json.dumps(target, ensure_ascii=False)}]},
+                            {"role": "assistant", "content": answer_text}]},
                             ensure_ascii=False) + "\n")
                         written += 1
                         stats["first_layer"] += 1
