@@ -98,6 +98,9 @@
   .seed-preview-wrap{height:248px;margin-top:8px;overflow:hidden}
   .seed-preview-wrap>div{transform-origin:top left}
   .seed-review-box{margin-top:8px}
+  .seed-export{margin-top:8px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:6px;padding:4px 12px;font-size:12px;font-weight:400;cursor:pointer}
+  .seed-export:hover{border-color:var(--acc)}
 </style>
 </head>
 <body>
@@ -230,8 +233,11 @@
     </div>
     <div id="tab-a2ui" style="display:none">
       <button class="copy" onclick="copyText('outA2ui')">复制</button>
+      <button class="copy" id="exportA2uiBtn" style="margin-right:6px">导出 .a2ui.jsonl</button>
       <pre id="outA2ui"></pre>
-      <div class="note">标准三段 A2UI 流：<code>createSurface</code> → <code>updateComponents</code> → <code>updateDataModel</code>。</div>
+      <div class="note">标准三段 A2UI 流：<code>createSurface</code> → <code>updateComponents</code> → <code>updateDataModel</code>。
+      「导出 .a2ui.jsonl」按渲染 App golden 用例格式另存本次结果（catalogId <code>ohos.a2ui.extended.catalog</code>；
+      有数据模型时 <code>updateDataModel</code> 在 <code>updateComponents</code> 之前）。</div>
     </div>
     <div id="tab-preview" style="display:none">
       <div class="preview-wrap">
@@ -933,6 +939,116 @@ function toA2UI(compact, surfaceId){
 }
 
 /* ================================================================
+ *  导出 .a2ui.jsonl — 逐字节对齐 genui_evaluation 渲染 App 的 golden 用例格式
+ *  （参照 entry/src/main/resources/rawfile/golden/ux_2x2/*.a2ui.jsonl：
+ *   NDJSON + LF + 文件末尾换行；
+ *   第 1 行 createSurface{surfaceId,catalogId,sendDataModel}，
+ *   catalogId 逐字取 golden 的 "ohos.a2ui.extended.catalog"（非本页演示用的 .form）；
+ *   若有数据行，updateDataModel{surfaceId,path,value} 在 updateComponents 之前
+ *   （消息体同 direct_a2ui_batch_cases 真实用例）；
+ *   updateComponents{surfaceId,components}；组件键名与 golden 逐字一致：
+ *   id / component / children / content / src / label / action / styles，
+ *   space→styles.itemMargin，绑定值序列化为 "{{ ${/data/x} }}" 表达式字符串。
+ *   不改动现有 toA2UI —— 演示区仍展示三段 .form 产物。）
+ * ================================================================ */
+/* ==== A2UI_EXPORT_BEGIN（纯函数 + 常量；node 冒烟连同 setPointer 一起切出） ==== */
+const GOLDEN_CATALOG_ID="ohos.a2ui.extended.catalog";
+const EXPORT_CONTAINERS=["Row","Column","List","Stack"];
+const EXPORT_SEMANTIC_KEYS=["content","src","value","total","label","onClick","accessibility"];
+function exportBindValue(v){ return (v&&typeof v==="object"&&typeof v.path==="string")?("{{ ${"+v.path+"} }}"):v; }
+function exportFontWeight(v){
+  if(v==="bold") return 700;
+  if(typeof v==="string"&&/^\d+$/.test(v)) return Number(v);
+  return v;
+}
+function exportActionName(onClick){
+  const first=(Array.isArray(onClick)?onClick[0]:null)||{};
+  if(typeof first.id==="string"&&first.id) return first.id;
+  const bundle=first.args&&first.args.bundleName;
+  return "event."+(first.call||"tap")+(bundle?("."+String(bundle).split(".").pop()):"");
+}
+function exportA2uiJsonl(root, dataRows, surfaceId){
+  const comps=[]; let n=0;
+  const idFor=node=>{ n++; return (node.comp==="Text"?"txt":node.comp==="Image"?"img":String(node.comp||"node").toLowerCase())+n; };
+  (function walk(node, id){
+    const kids=(node.children||[]).filter(Boolean);
+    const kidIds=kids.map(idFor);
+    const comp={id, component:node.comp};
+    if(EXPORT_CONTAINERS.includes(node.comp)) comp.children=kidIds;
+    const props=node.props||{};
+    if(props.content!==undefined) comp.content=exportBindValue(props.content);
+    if(props.src!==undefined) comp.src=exportBindValue(props.src);
+    if(props.value!==undefined) comp.value=exportBindValue(props.value);
+    if(props.total!==undefined) comp.total=props.total;
+    if(props.label!==undefined) comp.label=exportBindValue(props.label);
+    if(props.onClick) comp.action={event:{name:exportActionName(props.onClick)}};
+    const styles={};
+    for(const [k,v] of Object.entries(props)){
+      if(EXPORT_SEMANTIC_KEYS.includes(k)) continue;
+      if(k==="space") styles.itemMargin=v;
+      else if(k==="fontWeight") styles.fontWeight=exportFontWeight(v);
+      else styles[k]=v;
+    }
+    if(Object.keys(styles).length) comp.styles=styles;
+    comps.push(comp);
+    kids.forEach((k,i)=>walk(k,kidIds[i]));
+  })(root,"root");
+  const rows=(dataRows||[]).filter(r=>Array.isArray(r)&&typeof r[0]==="string");
+  const messages=[{version:"v0.9",createSurface:{surfaceId,catalogId:GOLDEN_CATALOG_ID,sendDataModel:false}}];
+  if(rows.length){
+    const value={};
+    rows.forEach(r=>setPointer(value,r[0],r[1]));
+    messages.push({version:"v0.9",updateDataModel:{surfaceId,path:"/",value}});
+  }
+  messages.push({version:"v0.9",updateComponents:{surfaceId,components:comps}});
+  return messages.map(m=>JSON.stringify(m)).join("\n")+"\n";
+}
+/* 文件名 / surfaceId 用的非中文短横线小写命名：ASCII 原样、常用汉字查拼音表、其余跳过 */
+const EXPORT_PINYIN={"帮":"bang","我":"wo","做":"zuo","一":"yi","张":"zhang","天":"tian","气":"qi","卡":"ka","片":"pian",
+  "重":"zhong","点":"dian","看":"kan","温":"wen","度":"du","和":"he","感":"gan","冒":"mao","风":"feng","险":"xian",
+  "下":"xia","能":"neng","打":"da","开":"kai","应":"ying","用":"yong","生":"sheng","成":"cheng","电":"dian","池":"chi",
+  "显":"xian","示":"shi","量":"liang","剩":"sheng","余":"yu","可":"ke","时":"shi","间":"jian","想":"xiang","今":"jin",
+  "个":"ge","日":"ri","程":"cheng","包":"bao","含":"han","地":"di","历":"li","只":"zhi","关":"guan","心":"xin",
+  "空":"kong","质":"zhi","信":"xin","息":"xi","会":"hui","议":"yi","睡":"shui","眠":"mian","步":"bu","数":"shu",
+  "运":"yun","动":"dong","健":"jian","康":"kang","提":"ti","醒":"xing","充":"chong","状":"zhuang","态":"tai",
+  "内":"nei","存":"cun","清":"qing","理":"li","耳":"er","机":"ji","倒":"dao","计":"ji","明":"ming","早":"zao",
+  "晚":"wan","上":"shang","午":"wu","报":"bao","周":"zhou","月":"yue","年":"nian","家":"jia","出":"chu","行":"xing",
+  "路":"lu","车":"che","音":"yin","乐":"yue","闹":"nao","钟":"zhong","专":"zhuan","注":"zhu","模":"mo","式":"shi",
+  "省":"sheng","低":"di","高":"gao","新":"xin","消":"xiao","快":"kuai","递":"di","蓝":"lan","牙":"ya","紫":"zi",
+  "外":"wai","线":"xian","雨":"yu","雪":"xue","晴":"qing","云":"yun","湿":"shi","的":"de"};
+function exportSlug(text, fallback){
+  const tokens=[]; let ascii="";
+  for(const ch of String(text||"")){
+    if(/[A-Za-z0-9]/.test(ch)){ ascii+=ch.toLowerCase(); continue; }
+    if(ascii){ tokens.push(ascii); ascii=""; }
+    if(EXPORT_PINYIN[ch]) tokens.push(EXPORT_PINYIN[ch]);
+    if(tokens.length>=8) break;
+  }
+  if(ascii) tokens.push(ascii);
+  const s=tokens.slice(0,8).join("-");
+  return s||fallback||"card";
+}
+function exportSafeName(s, fallback){
+  const t=String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"");
+  return t||fallback||"card";
+}
+/* ==== A2UI_EXPORT_END ==== */
+function downloadA2uiJsonl(text, filename){
+  const blob=new Blob([text],{type:"application/x-ndjson"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+document.getElementById("exportA2uiBtn").addEventListener("click",()=>{
+  const ex=window.lastA2uiExport;
+  if(!ex||!ex.root){ alert("请先生成卡片（或在批量结果里点一次「查看输出」），再导出 .a2ui.jsonl"); return; }
+  const base=exportSafeName(ex.name,"card");
+  downloadA2uiJsonl(exportA2uiJsonl(ex.root,ex.dataRows||[],"playground-2x2-"+base), base+".a2ui.jsonl");
+});
+
+/* ================================================================
  *  预览渲染器
  * ================================================================ */
 function renderPreview(root, dataRows, targetBox){
@@ -1127,7 +1243,8 @@ async function runPipeline(){
     log("a2ui",`<div class="ok-line">✓ 已生成三段 A2UI — 见“最终输出 → A2UI / 预览”</div>`);
     setDur("a2ui",performance.now()-t0); setBadge("a2ui","done");
 
-    window.lastPipelineResult={root,dataRows,compact,a2ui,plan,choice,query};
+    window.lastPipelineResult={root,dataRows,compact,a2ui,plan,choice,query,title:sel.title};
+    window.lastA2uiExport={root,dataRows,name:exportSlug((sel.title||"").trim()||query,"card")};
     document.getElementById("outputCard").style.display="";
     document.getElementById("globalStatus").innerHTML='<span style="color:var(--ok)">✓ 管线执行完成 — 请在右侧查看最终输出</span>';
     return window.lastPipelineResult;
@@ -1237,8 +1354,8 @@ async function batchPromptFromRow(row){
 function batchShowResult(item){
   const out=item.result;
   const compactEl=document.getElementById("outCompact"),a2uiEl=document.getElementById("outA2ui"),previewEl=document.getElementById("previewBox"),outputEl=document.getElementById("outputCard"),statusEl=document.getElementById("globalStatus");
-  if(out.root){compactEl.textContent=out.compact||"";a2uiEl.textContent=out.a2ui||"";renderPreview(out.root,out.dataRows||[]);}
-  else if(out.protocolOutputs){compactEl.textContent=out.protocolOutputs.dsl?.code||"";a2uiEl.textContent=out.protocolOutputs.a2ui?.ndjson||"";previewEl.innerHTML="";const f=document.createElement("iframe");f.style="width:220px;height:220px;border:0;background:transparent";f.srcdoc="<body style='margin:4px;background:transparent'>"+(out.code||"")+"</body>";previewEl.appendChild(f);}
+  if(out.root){compactEl.textContent=out.compact||"";a2uiEl.textContent=out.a2ui||"";renderPreview(out.root,out.dataRows||[]);window.lastA2uiExport={root:out.root,dataRows:out.dataRows||[],name:exportSlug(out.request,"batch-"+item.index)};}
+  else if(out.protocolOutputs){window.lastA2uiExport=null;compactEl.textContent=out.protocolOutputs.dsl?.code||"";a2uiEl.textContent=out.protocolOutputs.a2ui?.ndjson||"";previewEl.innerHTML="";const f=document.createElement("iframe");f.style="width:220px;height:220px;border:0;background:transparent";f.srcdoc="<body style='margin:4px;background:transparent'>"+(out.code||"")+"</body>";previewEl.appendChild(f);}
   outputEl.style.display="";statusEl.innerHTML='<span style="color:var(--ok)">✓ 已加载批量样本 '+item.index+'</span>';
   const previewTab=document.querySelector('.tabs .tab[data-tab="preview"]');
   if(previewTab)previewTab.click();
@@ -1453,6 +1570,15 @@ function seedEntry(spec){
   el.appendChild(reviewBox);
   renderPreview(review.root,review.dataRows,reviewBox);
   reviewBox.style.transform="none";
+  /* 「导出 A2UI」：导当前显示的那张卡 —— 默认审阅卡；命中路由后跟随选中的模板骨架 */
+  let currentExport={root:review.root,dataRows:review.dataRows};
+  const expBtn=document.createElement("button");
+  expBtn.type="button"; expBtn.className="seed-export"; expBtn.textContent="导出 A2UI";
+  expBtn.title="把当前显示的卡（审阅卡或选中的模板骨架）导出为 golden 格式 .a2ui.jsonl";
+  expBtn.addEventListener("click",()=>{
+    const base=exportSafeName(spec.caseId,"seed-case");
+    downloadA2uiJsonl(exportA2uiJsonl(currentExport.root,currentExport.dataRows,base), base+".a2ui.jsonl");
+  });
   if(flags.length)
     el.insertAdjacentHTML("beforeend",'<div class="err-line">⚠ 目录未收录：'+escapeHtml(flags.join("、"))
       +'（种子字段理应全部来自注册表，请检查该种子）</div>');
@@ -1461,6 +1587,7 @@ function seedEntry(spec){
   const hits=seedSearchFull(spec);
   if(!hits.length){
     el.insertAdjacentHTML("beforeend",'<div class="note" style="margin-top:8px">附注：完整模板库路由未命中（87 模板按首层规则过滤后无字段子集覆盖，不代表种子错误）</div>');
+    el.appendChild(expBtn);
     return {node:el,kind:flags.length?"flagged":"review",routeHit:false};
   }
   el.insertAdjacentHTML("beforeend",
@@ -1478,11 +1605,13 @@ function seedEntry(spec){
   function seedShow(i){
     btns.forEach((x,j)=>x.classList.toggle("active",j===i));
     const {root,dataRows,wide}=seedTplSkeleton(hits[i],spec);
+    currentExport={root,dataRows};
     renderPreview(root,dataRows,prevBox);
     prevBox.style.transform=wide?"scale(0.85)":"scale(1.5)";
     prevWrap.style.height=wide?"148px":"248px";
   }
   seedShow(0);
+  el.appendChild(expBtn);
   return {node:el,kind:flags.length?"flagged":"review",routeHit:true};
 }
 function seedRenderAll(){
