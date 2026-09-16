@@ -91,6 +91,13 @@
   .batch-item-head b{flex:1} .batch-ok{color:var(--ok)} .batch-fail{color:var(--err)}
   .batch-view{margin-top:8px;background:var(--acc);color:#04101f;border:1px solid var(--acc);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
   .batch-view:hover{filter:brightness(1.12)}
+  .seed-opt{display:block;width:100%;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+    border-radius:8px;padding:6px 10px;font-size:11.5px;margin:4px 0;cursor:pointer;font-family:var(--mono);word-break:break-all;font-weight:400}
+  .seed-opt:hover{border-color:var(--acc)}
+  .seed-opt.active{border-color:var(--acc);color:var(--txt);background:#20304e}
+  .seed-preview-wrap{height:248px;margin-top:8px;overflow:hidden}
+  .seed-preview-wrap>div{transform-origin:top left}
+  .seed-review-box{margin-top:8px}
 </style>
 </head>
 <body>
@@ -172,6 +179,23 @@
     </div>
     <div class="note" id="batchDatasetMeta">正在读取数据集…</div><div class="note" id="batchStatus"></div>
     <div class="batch-results" id="batchResults"></div>
+  </div>
+
+  <div class="card" id="seedCard">
+    <h2>冻结种子直渲（审草稿，不调模型）</h2>
+    <div class="note">粘贴 taskspec 草稿 JSONL（如 <code>testdata/taskspec/taskspec_draft_v1.jsonl</code>，一行一条）。
+      全程零网络、零模型调用：每条非边界种子先用内联的真实云侧目录（7 能力 86 字段 18 事件）拼一张确定性<b>审阅卡</b>——
+      标题为能力释义，每个 candidateFields 一行「字段释义 + 样例值」，每个 eventIds 一个胶囊按钮，
+      并列出「应被 query 点名的清单」供与原话人眼比对（全选金标：query 必须点名每个字段和每个动作）。
+      模板路由（searchTemplates → enumeratePlans → expandCard）结果仅作附注；boundary 条目不进路由，仅人工判断。</div>
+    <label>taskspec 草稿 JSONL（一行一条，可多行）</label>
+    <textarea id="seedInput" style="min-height:130px" placeholder='{"caseId":"taskspec-d01","userQuery":"…","capabilityId":"ViewWeather","candidateFields":["/current/temperatureText"],"eventIds":[],"boundary":false,"notes":"…"}'></textarea>
+    <div class="batch-toolbar" style="margin-top:10px">
+      <button class="primary" id="seedRun">▶ 直渲</button>
+      <button id="seedClear">清空结果</button>
+    </div>
+    <div class="note" id="seedStatus"></div>
+    <div class="batch-results" id="seedResults"></div>
   </div>
 
   <div class="card">
@@ -910,7 +934,7 @@ function toA2UI(compact, surfaceId){
 /* ================================================================
  *  预览渲染器
  * ================================================================ */
-function renderPreview(root, dataRows){
+function renderPreview(root, dataRows, targetBox){
   const dm={}; dataRows.forEach(r=>setPointer(dm,r[0],r[1]));
   const getPath=p=>p.replace(/^\//,"").split("/").reduce((a,k)=>a&&a[k],dm);
   function el(node){
@@ -932,7 +956,9 @@ function renderPreview(root, dataRows){
       s.fontSize=(p.fontSize||14)+"px";
       if(p.fontWeight) s.fontWeight=p.fontWeight==="bold"?"700":p.fontWeight;
       s.color=cssColor(p.fontColor||"#FFFFFF");
-      s.whiteSpace="nowrap"; s.overflow="hidden"; s.textOverflow="ellipsis"; s.lineHeight="1.25";
+      if(p.maxLines&&p.maxLines>1){ s.whiteSpace="normal"; s.display="-webkit-box"; s.webkitLineClamp=String(p.maxLines); s.webkitBoxOrient="vertical"; s.overflow="hidden"; }
+      else { s.whiteSpace="nowrap"; s.overflow="hidden"; s.textOverflow="ellipsis"; }
+      s.lineHeight="1.25";
     }
     if(node.comp==="Image"){ d.textContent="☀"; s.fontSize=(p.width||24)*0.8+"px"; s.lineHeight="1"; }
     if(p.width==="matchParent") s.width="100%"; else if(typeof p.width==="number") s.width=p.width+"px";
@@ -947,7 +973,7 @@ function renderPreview(root, dataRows){
     (node.children||[]).forEach(c=>d.appendChild(el(c)));
     return d;
   }
-  const box=document.getElementById("previewBox");
+  const box=targetBox||document.getElementById("previewBox");
   box.innerHTML=""; box.style.transform="scale(1.5)";
   box.appendChild(el(root));
 }
@@ -1235,6 +1261,207 @@ async function runBatchCC(){
   }catch(e){batchStatus.textContent="✗ "+e.message;}finally{btn.disabled=false;}
 }
 loadBatchDataset().catch(e=>batchDatasetMeta.textContent="✗ "+e.message);
+
+/* ================================================================
+ *  冻结种子直渲 — taskspec 草稿 JSONL → 确定性审阅卡（主体）+ 模板路由（附注）
+ *  （零网络请求、零模型调用；boundary 条目只展示不路由）
+ *  审阅卡用内联的真实云侧目录 SEED_CATALOG 渲染，46 条种子全部可看；
+ *  模板路由仍走本页迷你 REGISTRY，覆盖有限，未命中只作一行附注。
+ * ================================================================ */
+/* 种子词表 → 演练场迷你注册表的映射：
+ * 草稿的能力/字段/事件命名来自真实云侧注册表，比本页内置 REGISTRY 大得多；
+ * 这里只做少量语义等价映射，映射不到的字段原样保留，让 Search 诚实地报未命中。 */
+const SEED_CAP_MAP={ViewWeather:"ViewWeather",GetPhoneBatteryInfo:"PhoneBattery",GetCalendarEvents:"CalendarToday"};
+const SEED_FIELD_MAP={
+  GetPhoneBatteryInfo:{"/batterySOCText":"/levelPercent","/chargingStatusDesc":"/chargeStateText"},
+  GetCalendarEvents:{"/events/title":"/next/title","/events/dtStart":"/next/timeText",
+                     "/events/dtEnd":"/next/timeText","/events/eventLocation":"/next/location"}
+};
+const SEED_EVENT_MAP={"event.open.weather":"event.open.weather","event.viewCalendarEvent":"event.open.calendar",
+  "event.open.settings.battery":"event.open.battery","event.open.settings.batteryHealth":"event.open.battery"};
+
+function seedBuildPlan(spec){
+  const capId=SEED_CAP_MAP[spec.capabilityId];
+  if(!capId) return {reason:"能力 "+spec.capabilityId+" 未内置于演练场迷你注册表（当前仅内置 ViewWeather、GetPhoneBatteryInfo→PhoneBattery、GetCalendarEvents→CalendarToday 三个演示能力）"};
+  const cap=REGISTRY.capabilities[capId];
+  const mapNotes=[],unknown=[],fields=[];
+  for(const f of (spec.candidateFields||[])){
+    const m=(SEED_FIELD_MAP[spec.capabilityId]||{})[f]||f;
+    if(m!==f) mapNotes.push("字段 "+f+" → "+m);
+    if(!cap.fields[m]&&!unknown.includes(f)) unknown.push(f);
+    if(!fields.includes(m)) fields.push(m);
+  }
+  const defEvt=REGISTRY.events.find(e=>e.cap===capId);
+  const action=[];
+  for(const ev of (spec.eventIds||[]).slice(0,2)){
+    const m=SEED_EVENT_MAP[ev]||(defEvt&&defEvt.id);
+    if(!m) continue;
+    if(m!==ev) mapNotes.push("事件 "+ev+" → "+m+"（近似映射，仅用于布局与按钮演示）");
+    action.push(m);
+  }
+  return {plan:{theme:REGISTRY.defaultTheme[capId],capability:capId,fields,action},mapNotes,unknown};
+}
+
+/* ---- 内联种子目录（原 playground/seed_catalog.json，来自真实云侧资产：7 能力 86 字段 18 事件）----
+ * d = 一句话释义；s = 样例值。保持单文件属性：页面可 file:// 直开，不做 fetch / script src。 */
+const SEED_CATALOG={"capabilities":{"ViewWeather":{"d":"查询指定地区的当前天气与未来数日天气预报","fields":{"/location/cityCode":{"d":"城市代码","s":"60814"},"/location/districtName":{"d":"区或县名称","s":"青浦区"},"/location/prefectureName":{"d":"城市名称","s":"上海市"},"/current/temperatureC":{"d":"当前温度的纯数值","s":"29"},"/current/temperatureText":{"d":"可直接显示的当前温度文本","s":"29℃"},"/current/condition":{"d":"当前天气现象","s":"多云"},"/current/feelsLikeC":{"d":"当前体感温度的纯数值","s":"31"},"/current/humidityPercent":{"d":"当前相对湿度的纯数值百分比","s":"68"},"/current/airQuality":{"d":"当前空气质量等级","s":"良"},"/current/windDirection":{"d":"当前风向","s":"东南风"},"/current/windLevel":{"d":"当前风力等级的纯整数","s":"2"},"/current/uvIndex":{"d":"当前紫外线等级","s":"中等"},"/current/coldLevel":{"d":"感冒指数","s":"低"},"/current/alertLevel":{"d":"预警信息","s":""},"/daily/date":{"d":"预报日期","s":"2026-08-06"},"/daily/weekday":{"d":"星期文本","s":"星期四"},"/daily/condition":{"d":"白天天气现象","s":"多云"},"/daily/temperatureRangeText":{"d":"可直接显示的最低温与最高温范围文本","s":"25℃ / 32℃"},"/daily/rainProbabilityPercent":{"d":"可直接显示的白天降雨概率文本","s":"20%"},"/daily/airQuality":{"d":"当天空气质量等级","s":"良"},"/daily/uvIndex":{"d":"当天紫外线等级","s":"中等"},"/daily/coldLevel":{"d":"感冒指数","s":"低"},"/updatedAt":{"d":"端侧完成天气查询和归一化的时间","s":"2026-08-06 09:00"}}},"GetCalendarEvents":{"d":"查询用户系统日历中的日程安排","fields":{"/eventCount":{"d":"查询到的日程记录总数量","s":"1"},"/events/entityName":{"d":"固定为 'CalendarEvent'","s":"CalendarEvent"},"/events/entityId":{"d":"系统日程的全局唯一实体ID","s":"example-event-001"},"/events/senderName":{"d":"日程数据标识符或发起方标识（如邀请人）","s":""},"/events/title":{"d":"日程标题","s":"项目例会"},"/events/eventLocation":{"d":"日程的具体地点描述","s":"会议室"},"/events/description":{"d":"日程的备注、摘要或补充叙述文本","s":"周例会"},"/events/dtStart":{"d":"格式化后的日程开始时间短文本","s":"14:00"},"/events/dtEnd":{"d":"格式化后的日程结束时间短文本","s":"15:00"},"/events/timeZone":{"d":"日程所处的时区标识","s":"Asia/Shanghai"},"/events/importantEventType":{"d":"日程事件的重要程度或分类枚举值（Type）","s":"0"},"/events/oneClickServiceType":{"d":"绑定的轻服务类型名称","s":"Meeting"},"/events/oneClickServiceLink":{"d":"一键直达的 URI 深度跳转链接","s":""},"/events/isServiceValid":{"d":"跳转服务连接是否有效","s":"0"},"/events/startDate":{"d":"日程开始日期格式化文本","s":"08-06"},"/events/countdownDays":{"d":"距离日程开始的自然日天数纯整数","s":"0"},"/events/isAllDay":{"d":"标识该日程是否为全天日程","s":"False"},"/updatedAt":{"d":"端侧完成数据组装的时间戳字符串","s":"2026-08-06 09:00"}}},"GetCountdownDays":{"d":"计算指定的日历日期距离今天还有多少天","fields":{"/countdownDays":{"d":"距离目标日期的自然日天数纯整数","s":"30"}}},"GetAppUsageDuration":{"d":"获取指定应用的使用时长数据","fields":{"/appUsage/appName":{"d":"应用名称文本","s":"示例应用"},"/appUsage/durationText":{"d":"可直接显示的应用今日运行总时长文本","s":"25 分钟"},"/updatedAt":{"d":"端侧完成数据查询和归一化的时间","s":"2026-08-06 09:00"}}},"GetEarphoneInfo":{"d":"查询当前手机连接的蓝牙耳机状态，包括耳机名称、主盒与左右耳的","fields":{"/isConnected":{"d":"当前是否有蓝牙耳机处于连接活跃状态","s":"True"},"/earphoneName":{"d":"耳机的设备广播名称","s":"示例耳机"},"/batteryLevel":{"d":"耳机盒（或整体）当前剩余电量的纯整数百分比","s":"80"},"/chargingStatusDesc":{"d":"耳机盒（或整体）当前的充电状态中文语义描述","s":"未充电"},"/leftBatteryLevel":{"d":"左耳机当前剩余电量的纯整数百分比","s":"76"},"/leftChargingStatusDesc":{"d":"左耳机当前的充电状态中文语义描述","s":"未充电"},"/rightBatteryLevel":{"d":"右耳机当前剩余电量的纯整数百分比","s":"78"},"/rightChargingStatusDesc":{"d":"右耳机当前的充电状态中文语义描述","s":"未充电"},"/updatedAt":{"d":"端侧完成多源数据感知和融合的时间戳字符串","s":"2026-08-06 09:00"}}},"GetPhoneBatteryInfo":{"d":"获取手机本机的全量电池状态快照，返回经过端侧语义化和字符化转","fields":{"/batterySOC":{"d":"当前手机设备剩余电量的纯整数百分比","s":"68"},"/batterySOCText":{"d":"可直接显示的当前手机设备剩余电量文本","s":"68%"},"/chargingStatusDesc":{"d":"当前设备电池的充电状态文本描述","s":"未充电"},"/batteryCapacityLevelDesc":{"d":"设备电池电量等级的语义化文本描述","s":"正常电量"},"/healthStatusDesc":{"d":"当前设备电池的物理健康状态文本描述","s":"正常"},"/pluggedTypeDesc":{"d":"当前设备连接的充电器类型文本描述","s":"未连接充电器"},"/batteryTemperatureText":{"d":"可直接显示的当前设备电池实时温度文本","s":"29.0 ℃"},"/nowCurrentText":{"d":"可直接显示的当前设备电池实时电流文本","s":"-151 mA"},"/voltageText":{"d":"可直接显示的当前设备电池实时电压文本","s":"4 V"},"/isBatteryPresentText":{"d":"当前设备物理电池是否在位或受支持的状态描述","s":"在位"},"/updatedAt":{"d":"端侧完成全量电量状态字符化转换的系统时间文本","s":"2026-08-06 09:00"}}},"GetHealthAndSportSummary":{"d":"一键合并查询用户指定时间段内的大健康、日常大盘活动与单次专业","fields":{"/targetDateText":{"d":"该组健康与运动数据所归属的确切日期文本","s":"2026-08-06"},"/sleepScore":{"d":"睡眠综合得分","s":"82"},"/sleepStatus":{"d":"基于得分智能生成的睡眠状态语义判定","s":"良好"},"/sleepTypeDesc":{"d":"睡眠记录方式或类型的描述","s":"科学睡眠"},"/nightSleepDurationText":{"d":"可直接显示的夜间正式睡眠总时长文本","s":"7小时1分"},"/deepSleepDurationText":{"d":"可直接显示的夜间正式睡眠深睡总时长文本","s":"2小时15分"},"/totalNapDurationText":{"d":"可直接显示的白天零星小睡累计总时长文本","s":"0分"},"/fallAsleepTimeText":{"d":"格式化后的确切入睡时刻短文本（HH:mm）","s":"23:15"},"/wakeupTimeText":{"d":"格式化后的确切醒来时刻短文本（HH:mm）","s":"07:30"},"/dailySteps":{"d":"与最新睡眠同属一天的日常全天累计活动总步数纯","s":"6200"},"/dailyTotalCaloriesText":{"d":"可直接显示的日常活动总消耗热量文本","s":"420 千卡"},"/dailyDistanceText":{"d":"可直接显示的日常活动总距离文本","s":"4.60 公里"},"/exerciseTypeName":{"d":"最近一次发生的单次专业运动训练类型的中文映射","s":"户外跑步"},"/exerciseStartTimeText":{"d":"专业运动开始的确切时刻文本（HH:mm）","s":"18:30"},"/exerciseEndTimeText":{"d":"专业运动结束的确切时刻文本（HH:mm）","s":"19:10"},"/exerciseDurationText":{"d":"可直接显示的单次专业运动实际持续时长文本","s":"40分"},"/exerciseCalorieText":{"d":"可直接显示的单次专业运动净热量消耗文本","s":"260 千卡"},"/exerciseHeartRateAvg":{"d":"专业运动期间平均心率的纯整数","s":"135"},"/exerciseHeartRateMax":{"d":"专业运动期间最大心率的纯整数","s":"168"},"/exerciseHeartRateMin":{"d":"专业运动期间最低心率的纯整数","s":"96"},"/updatedAt":{"d":"端侧完成多实体规整转换的系统格式化时间戳字符","s":"2026-08-06 09:00"}}}},"events":{"event.call.phone":"打开拨号界面；提供电话号码时预填该号码","event.clean.memory":"立即清理手机运行内存并释放系统资源","event.open.settings.dnd":"打开系统设置的情景模式页，可配置免打扰或专注模式","event.open.settings.bluetooth":"打开系统设置的蓝牙设置页","event.open.settings.battery":"打开系统设置的电池页","event.open.settings.batteryHealth":"打开系统设置的电池健康页","event.open.settings.parentControl":"打开系统设置的健康使用设备页，可设置应用使用时长","event.open.settings.storage":"打开系统设置的存储空间页","event.open.weather":"打开天气应用中与当前卡片城市对应的天气详情页","event.open.clock.alarm":"打开时钟应用的闹钟首页","event.open.music.daily":"打开音乐应用的“每日30首”歌单","event.open.music.favorite":"打开音乐应用的收藏歌单（心动歌单）","event.open.health.sport":"打开运动健康应用的锻炼页","event.open.health.sleep":"打开运动健康应用的睡眠详情页","event.enter.meeting":"打开所选日程关联的会议链接","event.viewCalendarEvent":"打开所选日程的详情页","event.startNavigate":"打开地图应用，导航回家或前往公司","event.setPowerSavingMode":"开启或关闭系统省电模式"}};
+
+/* ---- 审阅卡（主体）：不还原真实卡片，而是把「query 应点名的字段/动作」摆出来供人眼比对 ---- */
+const SEED_RC={bg:"#20304e",primary:"#FFFFFF",support:"#D9FFFFFF",err:"#FF6B6B",pillBg:"#33FFFFFF",pillErrBg:"#33FF6B6B"};
+function seedIsBoundary(spec){ return spec.boundary===true||!spec.capabilityId; }
+function seedReviewCard(spec){
+  const capInfo=(SEED_CATALOG.capabilities||{})[spec.capabilityId]||null;
+  const missingFields=[],missingEvents=[];
+  const kids=[];
+  /* 标题行：能力释义；查不到显示 capabilityId 原文并标红 */
+  if(capInfo) kids.push(Txt(capInfo.d,{fontSize:13,fontWeight:"bold",fontColor:SEED_RC.primary,maxLines:2}));
+  else kids.push(Txt("⚠ "+spec.capabilityId+"（能力不在目录）",{fontSize:13,fontWeight:"bold",fontColor:SEED_RC.err,maxLines:2}));
+  /* 字段行：左释义 d，右样例值 s（空样例显示 —）；查不到整行标红 */
+  const dataRows=[],fieldRows=[];
+  for(const path of (spec.candidateFields||[])){
+    const f=capInfo&&capInfo.fields&&capInfo.fields[path];
+    if(!f){
+      missingFields.push(path);
+      fieldRows.push(RowC({width:"matchParent"},
+        Txt("⚠ "+path+" 字段不在目录",{fontSize:11,fontColor:SEED_RC.err})));
+      continue;
+    }
+    const abs="/seed"+path;
+    if(!dataRows.find(r=>r[0]===abs)) dataRows.push([abs,(f.s==null||f.s==="")?"—":f.s]);
+    fieldRows.push(RowC({width:"matchParent",space:8,justifyContent:"spaceBetween",alignItems:"center"},
+      Txt(f.d,{fontSize:11,fontColor:SEED_RC.support,layoutWeight:1,maxLines:1}),
+      Txt({path:abs},{fontSize:11,fontWeight:"500",fontColor:SEED_RC.primary,maxLines:1})));
+  }
+  kids.push(fieldRows.length?Col({width:"matchParent",space:4},...fieldRows)
+    :Txt("（该种子无 candidateFields）",{fontSize:11,fontColor:SEED_RC.support}));
+  /* 事件胶囊：文本用事件释义；查不到标红 */
+  const evs=spec.eventIds||[];
+  if(evs.length) kids.push(Col({width:"matchParent",space:5},...evs.map(id=>{
+    const d=(SEED_CATALOG.events||{})[id];
+    if(!d) missingEvents.push(id);
+    return RowC({width:"matchParent",height:24,justifyContent:"center",alignItems:"center",
+        backgroundColor:d?SEED_RC.pillBg:SEED_RC.pillErrBg,borderRadius:12},
+      Txt(d||("⚠ "+id+" 事件不在目录"),{fontSize:11,fontWeight:"500",fontColor:d?SEED_RC.primary:SEED_RC.err,maxLines:1}));
+  })));
+  const root=Col({width:"matchParent",padding:12,borderRadius:12,space:8,backgroundColor:SEED_RC.bg},...kids);
+  return {root,dataRows,missingFields,missingEvents,capMissing:!capInfo};
+}
+/* 「应被 query 点名的清单」：字段释义 + 事件释义，供与原话人眼比对（不做 NLP 匹配） */
+function seedChecklistHtml(spec){
+  const capInfo=(SEED_CATALOG.capabilities||{})[spec.capabilityId]||null;
+  const items=[];
+  for(const p of (spec.candidateFields||[])){
+    const f=capInfo&&capInfo.fields&&capInfo.fields[p];
+    items.push(f?f.d:p+"（不在目录）");
+  }
+  for(const id of (spec.eventIds||[])){
+    const d=(SEED_CATALOG.events||{})[id];
+    items.push("【动作】"+(d||id+"（不在目录）"));
+  }
+  if(!items.length) return '<div class="note">应被 query 点名的清单：（空 — 该种子无字段与动作）</div>';
+  return '<div class="note" style="color:var(--warn)">应被 query 点名（全选金标：逐一点名，请与上方原话人眼比对）：'
+    +escapeHtml(items.join(" ｜ "))+'</div>';
+}
+function seedHeadHtml(spec){
+  const nf=(spec.candidateFields||[]).length;
+  const na=(spec.actionCount!=null?spec.actionCount:(spec.eventIds||[]).length);
+  const meta=[spec.caseId||"（无 caseId）",spec.capabilityId||"（无能力）","字段 "+nf,"动作 "+na,spec.size||""]
+    .filter(Boolean).join(" ｜ ");
+  let h='<div class="batch-item-head"><b>'+escapeHtml(meta)+"</b></div>";
+  h+='<div class="note">原话：'+escapeHtml(spec.userQuery||"（无 userQuery）")+"</div>";
+  if(spec.notes) h+='<div class="note">notes：'+escapeHtml(spec.notes)+"</div>";
+  return h;
+}
+function seedEntry(spec){
+  const el=document.createElement("div");
+  /* 边界条目：不渲染审阅卡，不进模板路由 */
+  if(seedIsBoundary(spec)){
+    el.className="batch-item";
+    el.innerHTML=seedHeadHtml(spec)
+      +'<div style="margin-top:6px"><span class="badge b-fallback">边界条目：不进模板路由，仅人工判断</span></div>';
+    return {node:el,kind:"boundary",routeHit:false};
+  }
+  /* ① 审阅卡（主体）：SEED_CATALOG 全目录覆盖，46 条非边界种子条条可看 */
+  const review=seedReviewCard(spec);
+  const flags=[];
+  if(review.capMissing) flags.push("能力 "+spec.capabilityId);
+  review.missingFields.forEach(f=>flags.push("字段 "+f));
+  review.missingEvents.forEach(e=>flags.push("事件 "+e));
+  el.className="batch-item "+(flags.length?"fail":"ok");
+  el.innerHTML=seedHeadHtml(spec)+seedChecklistHtml(spec);
+  const reviewBox=document.createElement("div");
+  reviewBox.className="seed-review-box";
+  el.appendChild(reviewBox);
+  renderPreview(review.root,review.dataRows,reviewBox);
+  reviewBox.style.transform="none";
+  if(flags.length)
+    el.insertAdjacentHTML("beforeend",'<div class="err-line">⚠ 目录未收录：'+escapeHtml(flags.join("、"))
+      +'（种子字段理应全部来自注册表，请检查该种子）</div>');
+  /* ② 模板路由（附注）：命中方案照旧可切换渲染；未命中只提示一行小字 */
+  let options=[],built=null;
+  try{
+    built=seedBuildPlan(spec);
+    if(built.plan){ const search=searchTemplates(built.plan); options=enumeratePlans(built.plan,search); }
+  }catch(e){ options=[]; }
+  if(!options.length){
+    el.insertAdjacentHTML("beforeend",'<div class="note" style="margin-top:8px">附注：模板路由未命中（演练场模板库覆盖有限，不代表种子错误）</div>');
+    return {node:el,kind:flags.length?"flagged":"review",routeHit:false};
+  }
+  const {plan,mapNotes}=built;
+  el.insertAdjacentHTML("beforeend",
+    '<div class="note" style="margin-top:8px">附注 · 模板路由命中：共 '+options.length+' 个合法方案（布局 × 模板），点击切换渲染：</div>'
+    +(mapNotes.length?'<div class="note">映射：'+escapeHtml(mapNotes.join("；"))+'</div>':"")
+    +'<details><summary>拼出的第一层 plan（确定性，未调模型）</summary><pre>'+escapeHtml(JSON.stringify(plan))+'</pre></details>');
+  const optWrap=document.createElement("div"); el.appendChild(optWrap);
+  const prevWrap=document.createElement("div"); prevWrap.className="seed-preview-wrap";
+  const prevBox=document.createElement("div"); prevWrap.appendChild(prevBox); el.appendChild(prevWrap);
+  const btns=options.map((o,i)=>{
+    const b2=document.createElement("button"); b2.type="button"; b2.className="seed-opt";
+    b2.textContent=(i+1)+". "+o.tpl.id+" ＋ "+o.layout.id+" ｜ shows: "+o.tpl.shows.join(", ");
+    b2.addEventListener("click",()=>seedShow(i));
+    optWrap.appendChild(b2); return b2;
+  });
+  function seedShow(i){
+    btns.forEach((x,j)=>x.classList.toggle("active",j===i));
+    const {root,dataRows}=expandCard(plan,{...options[i],showIcon:false});
+    renderPreview(root,dataRows,prevBox);
+  }
+  seedShow(0);
+  return {node:el,kind:flags.length?"flagged":"review",routeHit:true};
+}
+function seedRenderAll(){
+  const box=document.getElementById("seedResults"),statusEl=document.getElementById("seedStatus");
+  box.innerHTML="";
+  const lines=document.getElementById("seedInput").value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(!lines.length){ statusEl.textContent="请先粘贴至少一行 taskspec 草稿 JSONL。"; return; }
+  let review=0,flagged=0,boundary=0,bad=0,routeHit=0;
+  for(const line of lines){
+    let spec=null;
+    try{ spec=JSON.parse(line); }catch(e){
+      bad++;
+      const el=document.createElement("div"); el.className="batch-item fail";
+      el.innerHTML='<div class="err-line">JSONL 解析失败：'+escapeHtml(e.message)+"</div><pre>"+escapeHtml(line.slice(0,200))+"</pre>";
+      box.appendChild(el); continue;
+    }
+    try{
+      const r=seedEntry(spec); box.appendChild(r.node);
+      if(r.kind==="boundary") boundary++;
+      else { review++; if(r.kind==="flagged") flagged++; if(r.routeHit) routeHit++; }
+    }catch(e){
+      bad++;
+      const el=document.createElement("div"); el.className="batch-item fail";
+      el.innerHTML=seedHeadHtml(spec)+'<div class="err-line">直渲异常：'+escapeHtml(e.message)+"</div>";
+      box.appendChild(el);
+    }
+  }
+  statusEl.textContent="共 "+lines.length+" 条：审阅卡 "+review+"（目录红标 "+flagged+"），边界 "+boundary
+    +(bad?"，解析/渲染失败 "+bad:"")
+    +"；附注模板路由命中 "+routeHit+"（未命中不代表种子错误）。全程未发起任何网络请求。";
+}
+document.getElementById("seedRun").addEventListener("click",seedRenderAll);
+document.getElementById("seedClear").addEventListener("click",()=>{
+  document.getElementById("seedResults").innerHTML=""; document.getElementById("seedStatus").textContent="";
+});
 
 </script>
 </body>
