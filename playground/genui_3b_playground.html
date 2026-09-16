@@ -164,6 +164,8 @@
       <span class="chip" data-q="生成一张电池卡片，显示电量和剩余可用时间">电池</span>
       <span class="chip" data-q="我想看今天下一个日程，包含时间和地点，可以点开日历">日程</span>
       <span class="chip" data-q="做个天气卡，只关心空气质量">空气质量</span>
+      <span class="chip" data-q="离演唱会还有几天了？搞张倒数卡，点开能跳到收藏歌单先练练歌">倒数日 + 歌单</span>
+      <span class="chip" data-q="做张耳机卡片，看看左右耳还剩多少电">耳机电量</span>
     </div>
     <label>卡片尺寸</label>
     <select id="cardSize"><option value="2x2" selected>2x2（模板路由支持）</option></select>
@@ -206,7 +208,9 @@
     <h2>关于本演示</h2>
     <div class="note">
       真实云侧服务把所有安全关键步骤都保持为<b>确定性逻辑</b>（注册表、Search、编译器、校验器），
-      LLM 只做两个很小的决策。本页面复刻了这种分工：
+      LLM 只做两个很小的决策。本页面复刻了这种分工，且端到端主链路使用<b>内联的完整云侧目录</b>
+      （7 能力 86 字段 18 事件）与完整模板库（87 模板 · 8 能力），两次模型调用的提示词逐字对齐
+      <code>training/prompts.py</code> 的训练契约：
       标注 <span class="stage-kind kind-llm" style="display:inline">LLM</span> 的阶段用
       不足 1k token 的提示词调用你配置的模型；其余阶段全部是纯 JavaScript。
       若模型两次未通过校验，该阶段会退回确定性兜底，保证始终能产出卡片。
@@ -335,8 +339,8 @@ Tersel 调用树。
         <span class="cmp-size" id="cmpComposeSize"></span></div>
       <pre id="cmpComposeNew">（加载中…）</pre>
       <ul>
-        <li><b>生成 → 选择</b>：服务端先枚举全部合法（布局 × 模板）方案，模型只答
-          <code>{"plan": n, "showIcon": bool}</code>；调用树由确定性代码重建。</li>
+        <li><b>生成 → 选择</b>：服务端 Search 先在完整模板库（87 模板）内确定性筛出候选，模型只答
+          <code>{"plan": n}</code>；命中 ≥2 才发起调用，1 个直接选定，0 个走非模板兜底展示。</li>
         <li><b>契约不进提示词</b>：Props Schema、签名、素材规则都留在服务端编译器里。</li>
         <li><b>选错可控</b>：越界索引→带错重试→兜底方案 1，卡片必定产出。</li>
       </ul>
@@ -372,7 +376,14 @@ Template-only 语义）；模板 Search 未命中时不再回退自由生成，�
 <script>
 "use strict";
 /* ================================================================
- *  内置迷你注册表
+ * 完整云侧目录（原 playground/full_catalog.json 内联，保持单文件零 fetch）
+ * 7 能力 86 字段 18 事件 + 6 个通用事件；e2e 主链路与冻结种子区共用。
+ * capabilities.<capId> = {d:能力一句话, fields:{/路径:{d,s}}, themes:[{id,d}], suggestedEvents:[事件id]}
+ * ================================================================ */
+const FULL_CATALOG={"capabilities":{"ViewWeather":{"d":"查询指定地区的当前天气与未来数日天气预报","fields":{"/location/cityCode":{"d":"城市代码","s":"60814"},"/location/districtName":{"d":"区或县名称","s":"青浦区"},"/location/prefectureName":{"d":"城市名称","s":"上海市"},"/current/temperatureC":{"d":"当前温度的纯数值","s":"29"},"/current/temperatureText":{"d":"可直接显示的当前温度文本","s":"29℃"},"/current/condition":{"d":"当前天气现象","s":"多云"},"/current/feelsLikeC":{"d":"当前体感温度的纯数值","s":"31"},"/current/humidityPercent":{"d":"当前相对湿度的纯数值百分比","s":"68"},"/current/airQuality":{"d":"当前空气质量等级","s":"良"},"/current/windDirection":{"d":"当前风向","s":"东南风"},"/current/windLevel":{"d":"当前风力等级的纯整数","s":"2"},"/current/uvIndex":{"d":"当前紫外线等级","s":"中等"},"/current/coldLevel":{"d":"感冒指数","s":"低"},"/current/alertLevel":{"d":"预警信息","s":""},"/daily/date":{"d":"预报日期","s":"2026-08-06"},"/daily/weekday":{"d":"星期文本","s":"星期四"},"/daily/condition":{"d":"白天天气现象","s":"多云"},"/daily/temperatureRangeText":{"d":"可直接显示的最低温与最高温范围文本","s":"25℃ / 32℃"},"/daily/rainProbabilityPercent":{"d":"可直接显示的白天降雨概率文本","s":"20%"},"/daily/airQuality":{"d":"当天空气质量等级","s":"良"},"/daily/uvIndex":{"d":"当天紫外线等级","s":"中等"},"/daily/coldLevel":{"d":"感冒指数","s":"低"},"/updatedAt":{"d":"端侧完成天气查询和归一化的时间","s":"2026-08-06 09:00"}},"themes":[{"id":"family-weather-care-blue","d":"家庭天气关怀蓝"},{"id":"fusion-weather-blue","d":"天气深蓝融球"}],"suggestedEvents":["event.open.weather"]},"GetCalendarEvents":{"d":"查询用户系统日历中的日程安排","fields":{"/eventCount":{"d":"查询到的日程记录总数量","s":"1"},"/events/entityName":{"d":"固定为 'CalendarEvent'","s":"CalendarEvent"},"/events/entityId":{"d":"系统日程的全局唯一实体ID","s":"example-event-001"},"/events/senderName":{"d":"日程数据标识符或发起方标识（如邀请人）","s":""},"/events/title":{"d":"日程标题","s":"项目例会"},"/events/eventLocation":{"d":"日程的具体地点描述","s":"会议室"},"/events/description":{"d":"日程的备注、摘要或补充叙述文本","s":"周例会"},"/events/dtStart":{"d":"格式化后的日程开始时间短文本","s":"14:00"},"/events/dtEnd":{"d":"格式化后的日程结束时间短文本","s":"15:00"},"/events/timeZone":{"d":"日程所处的时区标识","s":"Asia/Shanghai"},"/events/importantEventType":{"d":"日程事件的重要程度或分类枚举值（Type）","s":"0"},"/events/oneClickServiceType":{"d":"绑定的轻服务类型名称","s":"Meeting"},"/events/oneClickServiceLink":{"d":"一键直达的 URI 深度跳转链接","s":""},"/events/isServiceValid":{"d":"跳转服务连接是否有效","s":"0"},"/events/startDate":{"d":"日程开始日期格式化文本","s":"08-06"},"/events/countdownDays":{"d":"距离日程开始的自然日天数纯整数","s":"0"},"/events/isAllDay":{"d":"标识该日程是否为全天日程","s":"False"},"/updatedAt":{"d":"端侧完成数据组装的时间戳字符串","s":"2026-08-06 09:00"}},"themes":[{"id":"fusion-schedule-cool","d":"日程蓝青融球"},{"id":"fusion-schedule-warm","d":"日程暖橙融球"},{"id":"meeting-paper-neutral","d":"日历日程暖粉色"}],"suggestedEvents":["event.viewCalendarEvent","event.enter.meeting"]},"GetCountdownDays":{"d":"计算指定的日历日期距离今天还有多少天","fields":{"/countdownDays":{"d":"距离目标日期的自然日天数纯整数","s":"30"}},"themes":[{"id":"race-night-violet","d":"赛事倒计时渐变橙"}],"suggestedEvents":["event.open.clock.alarm"]},"GetAppUsageDuration":{"d":"获取指定应用的使用时长数据","fields":{"/appUsage/appName":{"d":"应用名称文本","s":"示例应用"},"/appUsage/durationText":{"d":"可直接显示的应用今日运行总时长文本","s":"25 分钟"},"/updatedAt":{"d":"端侧完成数据查询和归一化的时间","s":"2026-08-06 09:00"}},"themes":[{"id":"digital-wellbeing-neutral-dark","d":"应用使用时长明亮中性"}],"suggestedEvents":["event.open.settings.parentControl","event.open.settings.dnd"]},"GetEarphoneInfo":{"d":"查询当前手机连接的蓝牙耳机状态，包括耳机名称、主盒与左右耳的","fields":{"/isConnected":{"d":"当前是否有蓝牙耳机处于连接活跃状态","s":"True"},"/earphoneName":{"d":"耳机的设备广播名称","s":"示例耳机"},"/batteryLevel":{"d":"耳机盒（或整体）当前剩余电量的纯整数百分比","s":"80"},"/chargingStatusDesc":{"d":"耳机盒（或整体）当前的充电状态中文语义描述","s":"未充电"},"/leftBatteryLevel":{"d":"左耳机当前剩余电量的纯整数百分比","s":"76"},"/leftChargingStatusDesc":{"d":"左耳机当前的充电状态中文语义描述","s":"未充电"},"/rightBatteryLevel":{"d":"右耳机当前剩余电量的纯整数百分比","s":"78"},"/rightChargingStatusDesc":{"d":"右耳机当前的充电状态中文语义描述","s":"未充电"},"/updatedAt":{"d":"端侧完成多源数据感知和融合的时间戳字符串","s":"2026-08-06 09:00"}},"themes":[{"id":"audio-product-neutral-violet","d":"耳机音乐浅绿"},{"id":"fusion-battery-teal","d":"电量与蓝牙耳机青绿融球"}],"suggestedEvents":["event.open.settings.bluetooth"]},"GetPhoneBatteryInfo":{"d":"获取手机本机的全量电池状态快照，返回经过端侧语义化和字符化转","fields":{"/batterySOC":{"d":"当前手机设备剩余电量的纯整数百分比","s":"68"},"/batterySOCText":{"d":"可直接显示的当前手机设备剩余电量文本","s":"68%"},"/chargingStatusDesc":{"d":"当前设备电池的充电状态文本描述","s":"未充电"},"/batteryCapacityLevelDesc":{"d":"设备电池电量等级的语义化文本描述","s":"正常电量"},"/healthStatusDesc":{"d":"当前设备电池的物理健康状态文本描述","s":"正常"},"/pluggedTypeDesc":{"d":"当前设备连接的充电器类型文本描述","s":"未连接充电器"},"/batteryTemperatureText":{"d":"可直接显示的当前设备电池实时温度文本","s":"29.0 ℃"},"/nowCurrentText":{"d":"可直接显示的当前设备电池实时电流文本","s":"-151 mA"},"/voltageText":{"d":"可直接显示的当前设备电池实时电压文本","s":"4 V"},"/isBatteryPresentText":{"d":"当前设备物理电池是否在位或受支持的状态描述","s":"在位"},"/updatedAt":{"d":"端侧完成全量电量状态字符化转换的系统时间文本","s":"2026-08-06 09:00"}},"themes":[{"id":"battery-yellow","d":"手机电量黄色"},{"id":"device-clean-blue-teal","d":"设备资源暖橙渐变"},{"id":"fusion-battery-teal","d":"电量与蓝牙耳机青绿融球"}],"suggestedEvents":["event.open.settings.battery","event.open.settings.batteryHealth","event.setPowerSavingMode"]},"GetHealthAndSportSummary":{"d":"一键合并查询用户指定时间段内的大健康、日常大盘活动与单次专业","fields":{"/targetDateText":{"d":"该组健康与运动数据所归属的确切日期文本","s":"2026-08-06"},"/sleepScore":{"d":"睡眠综合得分","s":"82"},"/sleepStatus":{"d":"基于得分智能生成的睡眠状态语义判定","s":"良好"},"/sleepTypeDesc":{"d":"睡眠记录方式或类型的描述","s":"科学睡眠"},"/nightSleepDurationText":{"d":"可直接显示的夜间正式睡眠总时长文本","s":"7小时1分"},"/deepSleepDurationText":{"d":"可直接显示的夜间正式睡眠深睡总时长文本","s":"2小时15分"},"/totalNapDurationText":{"d":"可直接显示的白天零星小睡累计总时长文本","s":"0分"},"/fallAsleepTimeText":{"d":"格式化后的确切入睡时刻短文本（HH:mm）","s":"23:15"},"/wakeupTimeText":{"d":"格式化后的确切醒来时刻短文本（HH:mm）","s":"07:30"},"/dailySteps":{"d":"与最新睡眠同属一天的日常全天累计活动总步数纯","s":"6200"},"/dailyTotalCaloriesText":{"d":"可直接显示的日常活动总消耗热量文本","s":"420 千卡"},"/dailyDistanceText":{"d":"可直接显示的日常活动总距离文本","s":"4.60 公里"},"/exerciseTypeName":{"d":"最近一次发生的单次专业运动训练类型的中文映射","s":"户外跑步"},"/exerciseStartTimeText":{"d":"专业运动开始的确切时刻文本（HH:mm）","s":"18:30"},"/exerciseEndTimeText":{"d":"专业运动结束的确切时刻文本（HH:mm）","s":"19:10"},"/exerciseDurationText":{"d":"可直接显示的单次专业运动实际持续时长文本","s":"40分"},"/exerciseCalorieText":{"d":"可直接显示的单次专业运动净热量消耗文本","s":"260 千卡"},"/exerciseHeartRateAvg":{"d":"专业运动期间平均心率的纯整数","s":"135"},"/exerciseHeartRateMax":{"d":"专业运动期间最大心率的纯整数","s":"168"},"/exerciseHeartRateMin":{"d":"专业运动期间最低心率的纯整数","s":"96"},"/updatedAt":{"d":"端侧完成多实体规整转换的系统格式化时间戳字符","s":"2026-08-06 09:00"}},"themes":[{"id":"fusion-sleep-violet","d":"睡眠深紫融球"},{"id":"fusion-sport-orange","d":"运动活力橙融球"},{"id":"race-sunrise-action","d":"运动日出渐变橙"},{"id":"sleep-night-violet","d":"睡眠柔和浅紫"}],"suggestedEvents":["event.open.health.sleep","event.open.health.sport"]}},"events":{"event.call.phone":"打开拨号界面；提供电话号码时预填该号码","event.clean.memory":"立即清理手机运行内存并释放系统资源","event.open.settings.dnd":"打开系统设置的情景模式页，可配置免打扰或专注模式","event.open.settings.bluetooth":"打开系统设置的蓝牙设置页","event.open.settings.battery":"打开系统设置的电池页","event.open.settings.batteryHealth":"打开系统设置的电池健康页","event.open.settings.parentControl":"打开系统设置的健康使用设备页，可设置应用使用时长","event.open.settings.storage":"打开系统设置的存储空间页","event.open.weather":"打开天气应用中与当前卡片城市对应的天气详情页","event.open.clock.alarm":"打开时钟应用的闹钟首页","event.open.music.daily":"打开音乐应用的“每日30首”歌单","event.open.music.favorite":"打开音乐应用的收藏歌单（心动歌单）","event.open.health.sport":"打开运动健康应用的锻炼页","event.open.health.sleep":"打开运动健康应用的睡眠详情页","event.enter.meeting":"打开所选日程关联的会议链接","event.viewCalendarEvent":"打开所选日程的详情页","event.startNavigate":"打开地图应用，导航回家或前往公司","event.setPowerSavingMode":"开启或关闭系统省电模式"},"genericEvents":["event.call.phone","event.startNavigate","event.open.music.daily","event.open.music.favorite","event.clean.memory","event.open.settings.storage"]};
+/* ================================================================
+ *  内置迷你注册表（遗留 · 仅供「训练集批量筛查」区与其 genericBatchCard
+ *  等旧路径使用；e2e 主链路已全面改用上方 FULL_CATALOG 完整云侧目录）
  *  （对应 cloud/services/template_generation/resources：Provider、
  *   .cardtpl 模板、Theme — 演示裁剪为 3 个 Provider）
  * ================================================================ */
@@ -573,17 +584,17 @@ const STAGES = [
 · Main Agent 已选好候选能力；服务按 App/ROM 版本区间（registry_ranges.json）过滤，并做 IDS 已安装应用匹配。
 · CardSpecBuilder 写入 title/size/dataBindings（capabilityId + writeResultTo 数据根，如 /data/weather）。
 · TaskSpecBuilder 把各能力 outputSchema 投影到 writeResultTo 下：每个请求的叶子字段复制 {type, description, sampleValue} 进 dataModelSchema — sampleValue 就是后面插入的预览数据。
-本演示用内置注册表构造同样的五字段 TaskSpec：{userQuery, size, eventCandidates, dataModelSchema, assetCandidates}。`},
+本演示用内联的完整云侧目录（FULL_CATALOG，7 能力 86 字段）构造同样的五字段 TaskSpec：{userQuery, size, eventCandidates, dataModelSchema, assetCandidates}。`},
  {key:"plan", kind:"llm", title:"第一层 — 模板规划（模板选择）",
   desc:`云侧在此阶段做什么（LLM + 确定性 Search）：
 · 第一层 LLM 并不挑选最终模板，只标定：themeId、用户明确要求展示的字段（按能力分组）、0-2 个显式 Action（一个很小的 JSON：TemplateRetrievalQuery）。
 · 随后确定性的服务端 Search 逐字校验每个字段是否来自 candidateOutputFields、解析唯一业务、按 Action 数过滤布局后缀（0→Full，1→Hero/Full，2→Compact），返回候选模板集合。模型说什么都逃不出注册表。
-本演示采用的 3B 适配：删掉提示词里的规则手册；模型只需从简短候选列表填一个 3 键 JSON（<1k token）。校验失败会带错误信息重试最多 2 次；仍失败则用确定性关键词兜底。`},
+本演示采用的 3B 适配：删掉提示词里的规则手册；模型只需从简短候选列表填一个 3 键 JSON（<1k token），提示词逐字对齐训练契约 training/prompts.py 的 SYSTEM_FIRST_LAYER / build_first_layer_user。校验失败会带错误信息重试最多 2 次；仍失败则用确定性关键词兜底（覆盖全部 7 能力）。`},
  {key:"compose", kind:"llm", title:"第二层 — 组合（模板 + 布局选择）",
   desc:`云侧在此阶段做什么（LLM + 严格编译器）：
 · 第二层 LLM 接收动态契约（候选模板签名、允许布局、已批准 Action、Theme ID — 上限 24k 字符），输出类 Tersel 调用树：Template("Layout", {}, Template("Business", {props}), Template("PillAction", {actionId}))。
 · compile_ux_layout_card() 是硬边界：解析调用树，逐一比对模板 ID / Props / Action 与契约，然后确定性展开 .cardtpl（$path 绑定、$theme 颜色、Action lowering）。契约违规时模块内最多修复 2 次。
-本演示采用的 3B 适配：不再生成调用树，而是由服务端枚举所有合法（布局 × 模板）方案（通常 <10 个），模型只做选择题：{"plan": n, "showIcon": bool}。对 3B 来说，选择远比生成可靠。`},
+本演示采用的 3B 适配：不再生成调用树，而是由确定性 Search 在完整模板库（87 模板）内筛出候选，模型只做选择题：{"plan": n}（提示词逐字对齐 SYSTEM_SECOND_LAYER / build_second_layer_user）。命中 ≥2 才发起模型调用；1 个直接选定；0 个不再报错终止，而是走非模板兜底路线的演示呈现（通用字段卡）。对 3B 来说，选择远比生成可靠。`},
  {key:"expand", kind:"deterministic", title:"模板展开与数据插入",
   desc:`云侧在此阶段做什么（确定性）：
 · 展开选中的 .cardtpl：Bind/$path 变成以 CardSpec writeResultTo 为根的 {"path":"/data/..."} 引用；$theme(...) 展开为 theme.json 中的具体颜色；Theme rootStyle（渐变、圆角、内边距）应用到卡片根节点；已批准 Action 降级为 onClick。
@@ -695,8 +706,11 @@ function extractJSON(text){
  *  阶段 0 — 主 Agent 能力选择（云侧 LLM，模拟小艺 Step 2-4）
  * ================================================================ */
 function capabilityOverview(){
-  return Object.entries(REGISTRY.capabilities).map(([id,c])=>
-    `${id}（${c.label}）: 可展示 ${Object.values(c.fields).map(f=>f.desc.split(" ").slice(-1)[0]).join("、")}`).join("\n");
+  return Object.entries(FULL_CATALOG.capabilities).map(([id,c])=>{
+    const descs=Object.values(c.fields).map(f=>f.d);
+    const more=descs.length>8?`等${descs.length}项`:"";
+    return `${id}（${c.d}）: 可展示 ${descs.slice(0,8).join("、")}${more}`;
+  }).join("\n");
 }
 function agentPromptMessages(query){
   const system=
@@ -716,14 +730,14 @@ function validateAgent(sel){
   const errs=[];
   const caps=Array.isArray(sel.capabilities)?sel.capabilities:[];
   if(!caps.length || caps.length>2) errs.push("capabilities 必须为 1-2 个");
-  caps.forEach(c=>{ if(!REGISTRY.capabilities[c]) errs.push(`capability "${c}" 不在 CAPABILITIES 中`); });
+  caps.forEach(c=>{ if(!FULL_CATALOG.capabilities[c]) errs.push(`capability "${c}" 不在 CAPABILITIES 中`); });
   if(typeof sel.title!=="string" || !sel.title.trim()) errs.push("缺少 title");
   return errs;
 }
 function fallbackAgent(query){
-  const cap=fallbackPlan(query, Object.keys(REGISTRY.capabilities)).capability;
+  const cap=fallbackCapability(query);
   return {suitable:true, capabilities:[cap],
-          title:REGISTRY.capabilities[cap].label.split(" ").slice(-1)[0]+"卡片",
+          title:FALLBACK_TITLES[cap]||(cap+"卡片").slice(0,8),
           description:query.slice(0,30)};
 }
 
@@ -731,18 +745,20 @@ function fallbackAgent(query){
  *  阶段 1 — TaskSpec（确定性，只投影主 Agent 选中的能力）
  * ================================================================ */
 function buildTaskSpec(query, size, selectedIds){
-  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
+  const ids=selectedIds||Object.keys(FULL_CATALOG.capabilities);
   const dataModelSchema={data:{}};
-  for(const [capId,cap] of Object.entries(REGISTRY.capabilities)){
+  for(const [capId,cap] of Object.entries(FULL_CATALOG.capabilities)){
     if(!ids.includes(capId)) continue;
     for(const [path,leaf] of Object.entries(cap.fields)){
-      setPointer(dataModelSchema, cap.root+path, {type:leaf.type, description:leaf.desc, sampleValue:leaf.sample});
+      setPointer(dataModelSchema, "/data/"+capId+path, {description:leaf.d, sampleValue:leaf.s});
     }
   }
+  const evIds=[]; const seen=new Set();
+  ids.forEach(id=>((FULL_CATALOG.capabilities[id]||{}).suggestedEvents||[]).forEach(e=>{ if(!seen.has(e)){seen.add(e); evIds.push(e);} }));
+  (FULL_CATALOG.genericEvents||[]).forEach(e=>{ if(!seen.has(e)){seen.add(e); evIds.push(e);} });
   return {
     userQuery:query, size,
-    eventCandidates:REGISTRY.events.filter(e=>ids.includes(e.cap))
-      .map(e=>({id:e.id, call:"clickToDeeplink", args:{bundleName:REGISTRY.capabilities[e.cap].bundle}})),
+    eventCandidates:evIds.map(id=>({id, description:FULL_CATALOG.events[id]||""})),
     dataModelSchema,
     assetCandidates:[{id:"asset.weather.sun", src:"resources/base/media/sun_max.svg", description:"sunny weather icon"}]
   };
@@ -759,13 +775,34 @@ function setPointer(root, pointer, value){
 
 /* ================================================================
  *  阶段 2 — 第一层规划（LLM）+ 确定性 Search
+ *  提示词逐字对齐 training/prompts.py：SYSTEM_FIRST_LAYER 原文 +
+ *  build_first_layer_user 的段落结构/缩进（CAPABILITIES:/THEMES:/ACTIONS:/USER REQUEST:）。
+ *  取材 FULL_CATALOG：CAPABILITIES 列主 Agent 选中能力的全部字段；
+ *  THEMES 列该能力 themes；ACTIONS 列 suggestedEvents + genericEvents。
  * ================================================================ */
-function planPromptMessages(query, selectedIds, agentSel){
-  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
-  const caps=Object.entries(REGISTRY.capabilities).filter(([id])=>ids.includes(id)).map(([id,c])=>
-    `${id} (${c.label}):\n`+Object.entries(c.fields).map(([p,f])=>`  ${p} — ${f.desc}`).join("\n")).join("\n");
-  const themes=Object.entries(REGISTRY.themes).map(([id,t])=>`  ${id} — ${t.desc}`).join("\n");
-  const acts=REGISTRY.events.filter(e=>ids.includes(e.cap)).map(e=>`  ${e.id} — ${e.desc}`).join("\n");
+/* 与 python build_first_layer_user 同构的纯格式化器（冒烟测试直接对拍字节） */
+function buildFirstLayerUserText(capId, capDesc, fieldPairs, themePairs, actionPairs, query){
+  const fieldLines=fieldPairs.map(p=>`  ${p[0]} — ${p[1]}`).join("\n");
+  const capLine=`${capId} (${String(capDesc).split("。")[0].slice(0,50)})`;
+  const themeLines=themePairs.map(t=>`  ${t[0]} — ${t[1]}`).join("\n");
+  const actionLines=actionPairs.map(a=>`  ${a[0]} — ${String(a[1]).slice(0,50)}`).join("\n")||"  (none)";
+  return `CAPABILITIES:\n${capLine}:\n${fieldLines}\nTHEMES:\n${themeLines}\nACTIONS:\n${actionLines}\n\nUSER REQUEST: ${query}`;
+}
+function firstLayerCandidates(selectedIds, query){
+  const all=Object.keys(FULL_CATALOG.capabilities);
+  let ids=(selectedIds&&selectedIds.length?selectedIds:[fallbackCapability(query||"", all)])
+    .filter(id=>FULL_CATALOG.capabilities[id]);
+  if(!ids.length) ids=[all[0]];
+  const themes=[], events=[], seenT=new Set(), seenE=new Set();
+  ids.forEach(id=>{
+    ((FULL_CATALOG.capabilities[id]||{}).themes||[]).forEach(t=>{ if(!seenT.has(t.id)){seenT.add(t.id); themes.push(t);} });
+    ((FULL_CATALOG.capabilities[id]||{}).suggestedEvents||[]).forEach(e=>{ if(!seenE.has(e)){seenE.add(e); events.push(e);} });
+  });
+  (FULL_CATALOG.genericEvents||[]).forEach(e=>{ if(!seenE.has(e)){seenE.add(e); events.push(e);} });
+  return {ids, themes, events};
+}
+function planPromptMessages(query, selectedIds){
+  const cand=firstLayerCandidates(selectedIds, query);
   const system=
 `You plan a small info card. Answer with ONE JSON object only, no explanation:
 {"theme":"<theme-id>","capability":"<capability-id>","fields":["</path>", ...],"action":["<event-id>", ...]}
@@ -774,19 +811,96 @@ Rules:
 - fields: only paths of that capability the user explicitly wants to see; [] if the user names the domain without specific fields.
 - theme: one theme id that matches the capability.
 - action: [] unless the user asks to tap / open / jump; then 1-2 matching event ids.`;
-  const cardLine=agentSel?`\nCARD: title=${agentSel.title||""} desc=${agentSel.description||""}`:"";
-  const user=
-`CAPABILITIES:
-${caps}
-THEMES:
-${themes}
-ACTIONS:
-${acts}
-${cardLine}
-USER REQUEST: ${query}`;
+  const themePairs=cand.themes.map(t=>[t.id,t.d]);
+  const actionPairs=cand.events.map(e=>[e,FULL_CATALOG.events[e]||""]);
+  const fieldPairsOf=id=>Object.entries(FULL_CATALOG.capabilities[id].fields).map(([p,f])=>[p,f.d]);
+  let user;
+  if(cand.ids.length===1){
+    const id=cand.ids[0];
+    user=buildFirstLayerUserText(id, FULL_CATALOG.capabilities[id].d, fieldPairsOf(id), themePairs, actionPairs, query);
+  }else{
+    /* 多能力候选时逐块拼接（训练契约为单能力；块内格式逐字一致） */
+    const capBlocks=cand.ids.map(id=>{
+      const cap=FULL_CATALOG.capabilities[id];
+      const fieldLines=fieldPairsOf(id).map(p=>`  ${p[0]} — ${p[1]}`).join("\n");
+      return `${id} (${String(cap.d).split("。")[0].slice(0,50)}):\n${fieldLines}`;
+    }).join("\n");
+    const themeLines=themePairs.map(t=>`  ${t[0]} — ${t[1]}`).join("\n");
+    const actionLines=actionPairs.map(a=>`  ${a[0]} — ${String(a[1]).slice(0,50)}`).join("\n")||"  (none)";
+    user=`CAPABILITIES:\n${capBlocks}\nTHEMES:\n${themeLines}\nACTIONS:\n${actionLines}\n\nUSER REQUEST: ${query}`;
+  }
   return [{role:"system",content:system},{role:"user",content:user}];
 }
 function validatePlan(plan, selectedIds){
+  const ids=selectedIds||Object.keys(FULL_CATALOG.capabilities);
+  const errs=[];
+  const cap=FULL_CATALOG.capabilities[plan.capability];
+  if(!cap) errs.push(`capability "${plan.capability}" 不在 CAPABILITIES 中`);
+  else if(!ids.includes(plan.capability)) errs.push(`capability "${plan.capability}" 不在主 Agent 选中的候选内`);
+  if(cap && !(cap.themes||[]).some(t=>t.id===plan.theme))
+    errs.push(`theme "${plan.theme}" 不在 ${plan.capability} 的 THEMES 中`);
+  const fields=Array.isArray(plan.fields)?plan.fields:[];
+  if(cap) fields.forEach(f=>{ if(!cap.fields[f]) errs.push(`字段 "${f}" 不是 ${plan.capability} 的候选路径`); });
+  const actions=Array.isArray(plan.action)?plan.action:[];
+  if(actions.length>2) errs.push("Action 最多 2 个");
+  actions.forEach(a=>{ if(!FULL_CATALOG.events[a]) errs.push(`action "${a}" 不在 ACTIONS 中`); });
+  return errs;
+}
+/* 确定性关键词兜底 — 覆盖完整目录 7 能力（无云端 key 时的确定性路线） */
+const FALLBACK_KEYWORDS=[
+  ["GetCountdownDays",        /演唱会|倒数|还有几天|倒计时|countdown/i],
+  ["GetEarphoneInfo",         /耳机|earbud|earphone|蓝牙/i],
+  ["GetHealthAndSportSummary",/睡眠|步数|运动|健康|心率|跑步|sleep|sport|step/i],
+  ["GetAppUsageDuration",     /抖音|用了多久|使用时长|屏幕时间|usage/i],
+  ["GetPhoneBatteryInfo",     /电量|电池|battery|充电/i],
+  ["ViewWeather",             /天气|温度|weather|空气|紫外|感冒|下雨/i],
+  ["GetCalendarEvents",       /日程|日历|会议|schedule|calendar|meeting/i]
+];
+const FALLBACK_FIELDS={
+  ViewWeather:["/location/districtName","/current/temperatureText","/current/condition"],
+  GetCalendarEvents:["/events/title","/events/dtStart","/events/eventLocation"],
+  GetCountdownDays:["/countdownDays"],
+  GetAppUsageDuration:["/appUsage/appName","/appUsage/durationText"],
+  GetEarphoneInfo:["/earphoneName","/leftBatteryLevel","/rightBatteryLevel"],
+  GetPhoneBatteryInfo:["/batterySOCText","/chargingStatusDesc"],
+  GetHealthAndSportSummary:["/nightSleepDurationText","/sleepScore"]
+};
+const FALLBACK_TITLES={ViewWeather:"天气卡片",GetPhoneBatteryInfo:"电量卡片",GetCalendarEvents:"日程卡片",
+  GetCountdownDays:"倒数日卡片",GetEarphoneInfo:"耳机卡片",GetAppUsageDuration:"使用时长卡片",GetHealthAndSportSummary:"健康运动卡片"};
+function fallbackCapability(query, ids){
+  ids=ids||Object.keys(FULL_CATALOG.capabilities);
+  for(const [id,re] of FALLBACK_KEYWORDS) if(ids.includes(id)&&re.test(query)) return id;
+  return ids[0];
+}
+function fallbackPlan(query, selectedIds){
+  const ids=(selectedIds&&selectedIds.length?selectedIds:Object.keys(FULL_CATALOG.capabilities))
+    .filter(id=>FULL_CATALOG.capabilities[id]);
+  const capability=fallbackCapability(query, ids.length?ids:undefined);
+  const cap=FULL_CATALOG.capabilities[capability];
+  const evt=(cap.suggestedEvents||[])[0];
+  const action=(/点|打开|跳|tap|open|click/i.test(query)&&evt)?[evt]:[];
+  const fields=(FALLBACK_FIELDS[capability]||Object.keys(cap.fields).slice(0,2)).slice(0,3);
+  return {theme:((cap.themes||[])[0]||{}).id, capability, fields, action};
+}
+function searchTemplates(plan){
+  const n=plan.action.length;
+  const layouts=LAYOUTS[n];
+  const suffixes=new Set(layouts.flatMap(l=>l.suffixes));
+  let cands=TEMPLATES.filter(t=>t.provider===plan.capability && suffixes.has(t.suffix));
+  if(plan.fields.length)
+    cands=cands.filter(t=>plan.fields.every(f=>t.shows.includes(f)));
+  if(!cands.length) throw new Error(`${plan.capability} 没有能覆盖全部所需字段的 ${[...suffixes].join("/")} 模板 — Search 未命中（云侧此时会回退到普通 Compact 模型路线）`);
+  return {layouts, candidates:cands};
+}
+/* ---- 遗留（仅批量筛查区使用；e2e 主链路已改走 FULL_CATALOG + searchFull）---- */
+function enumeratePlans(plan, search){
+  const out=[];
+  for(const layout of search.layouts)
+    for(const tpl of search.candidates.filter(t=>layout.suffixes.includes(t.suffix)))
+      out.push({layout, tpl});
+  return out;
+}
+function miniValidatePlan(plan, selectedIds){
   const ids=selectedIds||Object.keys(REGISTRY.capabilities);
   const errs=[];
   const cap=REGISTRY.capabilities[plan.capability];
@@ -800,38 +914,7 @@ function validatePlan(plan, selectedIds){
   actions.forEach(a=>{ if(!REGISTRY.events.find(e=>e.id===a)) errs.push(`action "${a}" 不在 ACTIONS 中`); });
   return errs;
 }
-function fallbackPlan(query, selectedIds){
-  const ids=selectedIds||Object.keys(REGISTRY.capabilities);
-  const kw={ViewWeather:/天气|温度|weather|空气|紫外|感冒/i, PhoneBattery:/电池|电量|battery|充电/i, CalendarToday:/日程|日历|会议|schedule|calendar/i};
-  let capability=null;
-  for(const [id,re] of Object.entries(kw)) if(ids.includes(id)&&re.test(query)){ capability=id; break; }
-  if(!capability) capability=ids[0];
-  const evt=REGISTRY.events.find(e=>e.cap===capability);
-  const action=(/点|打开|跳|tap|open|click/i.test(query)&&evt)?[evt.id]:[];
-  return {theme:REGISTRY.defaultTheme[capability], capability, fields:[], action};
-}
-function searchTemplates(plan){
-  const n=plan.action.length;
-  const layouts=LAYOUTS[n];
-  const suffixes=new Set(layouts.flatMap(l=>l.suffixes));
-  let cands=TEMPLATES.filter(t=>t.provider===plan.capability && suffixes.has(t.suffix));
-  if(plan.fields.length)
-    cands=cands.filter(t=>plan.fields.every(f=>t.shows.includes(f)));
-  if(!cands.length) throw new Error(`${plan.capability} 没有能覆盖全部所需字段的 ${[...suffixes].join("/")} 模板 — Search 未命中（云侧此时会回退到普通 Compact 模型路线）`);
-  return {layouts, candidates:cands};
-}
-
-/* ================================================================
- *  阶段 3 — 第二层组合（LLM 选择题）
- * ================================================================ */
-function enumeratePlans(plan, search){
-  const out=[];
-  for(const layout of search.layouts)
-    for(const tpl of search.candidates.filter(t=>layout.suffixes.includes(t.suffix)))
-      out.push({layout, tpl});
-  return out;
-}
-function composePromptMessages(query, plan, options){
+function miniComposePromptMessages(query, plan, options){
   const list=options.map((o,i)=>{
     const fields=o.tpl.shows.map(p=>REGISTRY.capabilities[plan.capability].fields[p].desc.split(" ")[0]).join(", ");
     return `${i+1}. template=${o.tpl.id}  layout=${o.layout.id} (${o.layout.desc})  shows: ${fields}${o.tpl.icon?"  [icon available]":""}`;
@@ -842,6 +925,39 @@ function composePromptMessages(query, plan, options){
 Pick the plan whose displayed fields best match the user request. showIcon=true only when the plan says [icon available] and an icon helps.`;
   const user=`PLANS:\n${list}\n\nUSER REQUEST: ${query}`;
   return [{role:"system",content:system},{role:"user",content:user}];
+}
+
+/* ================================================================
+ *  阶段 3 — 第二层组合（LLM 选择题）
+ *  提示词逐字对齐 training/prompts.py：SYSTEM_SECOND_LAYER 原文 +
+ *  build_second_layer_user 的格式（PLANS:/ACTIONS WANTED:/USER REQUEST:）。
+ *  候选即 searchFull 命中的完整库模板；命中 ≥2 才发起模型调用。
+ * ================================================================ */
+/* 与 python build_second_layer_user 同构的纯格式化器（plans=[{templateId,description,shows}]） */
+function buildSecondLayerUserText(plans, actionCount, query){
+  const lines=plans.map((p,i)=>{
+    const shows=p.shows.slice(0,6).map(x=>x.split("/").pop()).join(", ");
+    const desc=String(p.description||"").split("。")[0].slice(0,45);
+    return `${i+1}. template=${p.templateId}  (${desc})  shows: ${shows}`;
+  });
+  return `PLANS:\n${lines.join("\n")}\n\nACTIONS WANTED: ${actionCount}\nUSER REQUEST: ${query}`;
+}
+function composePromptMessages(query, actionCount, hits){
+  const system=
+`You choose one card composition. Answer with ONE JSON object only:
+{"plan": <number>}
+Pick the plan whose displayed fields and action count best match the user request.`;
+  const user=buildSecondLayerUserText(
+    hits.map(t=>({templateId:t.id, description:t.d, shows:t.shows})), actionCount, query);
+  return [{role:"system",content:system},{role:"user",content:user}];
+}
+/* 未命中分支的通用字段卡（seedReviewCard 风格：所选字段 + 样例值 + 动作胶囊） */
+function e2eGenericCard(plan){
+  const fields=(plan.fields&&plan.fields.length)?plan.fields
+    :(FALLBACK_FIELDS[plan.capability]||Object.keys((FULL_CATALOG.capabilities[plan.capability]||{fields:{}}).fields).slice(0,3));
+  const r=seedReviewCard({capabilityId:plan.capability, candidateFields:fields, eventIds:plan.action||[]});
+  r.root.props.width=160;   /* 审阅卡默认 matchParent，预览区固定 2x2 宽度 */
+  return {root:r.root, dataRows:r.dataRows};
 }
 
 /* ================================================================
@@ -1117,15 +1233,23 @@ function renderPromptCompare(){
   }catch(e){ document.getElementById("cmpPlanNew").textContent="生成失败："+e.message; }
   try{
     const p=fallbackPlan(q);
-    const s=searchTemplates(p);
-    const opts=enumeratePlans(p,s);
-    const compMsgs=composePromptMessages(q,p,opts);
-    const compText=fmtMessages(compMsgs);
-    document.getElementById("cmpComposeNew").textContent=compText;
-    document.getElementById("cmpComposeSize").textContent="共 "+compText.length+" 字符（≈"+Math.round(compText.length/2.2)+" token，示例按关键词兜底方案枚举；实际运行时按第一层结果枚举）";
+    const hits=searchFull(p.capability, p.fields, p.action.length, "2x2");
+    if(hits.length===0){
+      document.getElementById("cmpComposeNew").textContent=
+        "（本次输入 Search 未命中模板 → 不发起第二层调用；真实系统走非模板兜底路线（约105KB提示词，演示不实现），本页用通用字段卡呈现）";
+      document.getElementById("cmpComposeSize").textContent="0 字符";
+    }else if(hits.length===1){
+      document.getElementById("cmpComposeNew").textContent=
+        "（本次输入 Search 仅命中 1 个模板："+hits[0].id+" → 第二层直接选定，不发起模型调用）";
+      document.getElementById("cmpComposeSize").textContent="0 字符";
+    }else{
+      const compMsgs=composePromptMessages(q, p.action.length, hits);
+      const compText=fmtMessages(compMsgs);
+      document.getElementById("cmpComposeNew").textContent=compText;
+      document.getElementById("cmpComposeSize").textContent="共 "+compText.length+" 字符（≈"+Math.round(compText.length/2.2)+" token，示例按关键词兜底方案检索；实际运行时按第一层结果检索）";
+    }
   }catch(e){ document.getElementById("cmpComposeNew").textContent="生成失败："+e.message; }
 }
-renderPromptCompare();
 document.getElementById("userQuery").addEventListener("input", renderPromptCompare);
 
 /* ================================================================
@@ -1189,7 +1313,7 @@ async function runPipeline(){
     /* 阶段 2 */
     t0=performance.now(); setBadge("plan","running");
     let plan, planFellBack=false;
-    const res=await llmStageWithRetry("plan", planPromptMessages(query,selectedIds,sel),
+    const res=await llmStageWithRetry("plan", planPromptMessages(query,selectedIds),
       p=>validatePlan(p,selectedIds), 2).catch(e=>{
       log("plan",`<div class="err-line">✗ 模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
     if(res){ plan=res.obj; plan.fields=plan.fields||[]; plan.action=plan.action||[];
@@ -1197,35 +1321,51 @@ async function runPipeline(){
     else { plan=fallbackPlan(query,selectedIds); planFellBack=true;
       log("plan",`<div class="warn-line">⚠ 已使用确定性关键词兜底（云侧此时回退到普通 Compact 模型路线）</div>`); }
     logJson("plan","TemplateRetrievalQuery（已校验的第一层输出）",plan);
-    const search=searchTemplates(plan);
-    logJson("plan","确定性 Search 结果 — 候选模板",
-      {layoutCandidates:search.layouts.map(l=>l.id), templateCandidates:search.candidates.map(t=>t.id)});
+    const hits=searchFull(plan.capability, plan.fields, plan.action.length, size);
+    logJson("plan","确定性 Search 结果 — 候选模板（完整云侧模板库 87 模板 · 排除 Support · 按动作数选后缀 · 字段子集匹配）",
+      {actionCount:plan.action.length, templateCandidates:hits.map(t=>t.id)});
     setDur("plan",performance.now()-t0);
     setBadge("plan", planFellBack?"fallback":"done");
 
-    /* 阶段 3 */
+    /* 阶段 3 — 命中 ≥2 才发起模型调用；1 个直接选定；0 个走非模板兜底呈现 */
     t0=performance.now(); setBadge("compose","running");
-    const options=enumeratePlans(plan,search);
-    logJson("compose","枚举出的合法方案（服务端生成，供 3B 模型做选择题）",
-      options.map((o,i)=>`${i+1}: ${o.tpl.id} + ${o.layout.id}`));
-    let choice, composeFellBack=false;
-    const res2=await llmStageWithRetry("compose", composePromptMessages(query,plan,options),
-      o=>{ const k=Number(o.plan); return (Number.isInteger(k)&&k>=1&&k<=options.length)?[]:[`plan 必须是 1..${options.length} 之间的整数`]; }, 2)
-      .catch(e=>{ log("compose",`<div class="err-line">✗ 模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
-    if(res2){ const k=Number(res2.obj.plan);
-      choice={...options[k-1], showIcon:!!res2.obj.showIcon};
-      log("compose",`<div class="ok-line">✓ 第 ${res2.attempts} 次尝试选中方案 ${k}</div>`); }
-    else { choice={...options[0], showIcon:false}; composeFellBack=true;
-      log("compose",`<div class="warn-line">⚠ 已兜底到方案 1（确定性默认值）</div>`); }
-    logJson("compose","组合决策",{template:choice.tpl.id, layout:choice.layout.id, showIcon:choice.showIcon,
-      actions:plan.action});
-    setDur("compose",performance.now()-t0);
-    setBadge("compose", composeFellBack?"fallback":"done");
+    let choice=null, composeFellBack=false;
+    if(hits.length===0){
+      log("compose",`<div class="warn-line">⚠ 模板未命中 → 真实系统走非模板兜底路线（约105KB提示词，演示不实现）；本页改用通用字段卡呈现所选字段与动作</div>`);
+      logJson("compose","组合决策",{route:"non-template-fallback", capability:plan.capability,
+        fields:plan.fields, actions:plan.action});
+      setDur("compose",performance.now()-t0); setBadge("compose","fallback","✓ 非模板兜底");
+    }else if(hits.length===1){
+      choice=hits[0];
+      log("compose",`<div class="ok-line">✓ Search 仅命中 1 个模板，直接选定，不发起模型调用</div>`);
+      logJson("compose","组合决策",{template:choice.id, suffix:choice.sx, actions:plan.action});
+      setDur("compose",performance.now()-t0); setBadge("compose","done");
+    }else{
+      logJson("compose","Search 命中的候选模板（确定性生成，供 3B 模型做选择题）",
+        hits.map((t,i)=>`${i+1}: ${t.id}（${t.sx}）`));
+      const res2=await llmStageWithRetry("compose", composePromptMessages(query,plan.action.length,hits),
+        o=>{ const k=Number(o.plan); return (Number.isInteger(k)&&k>=1&&k<=hits.length)?[]:[`plan 必须是 1..${hits.length} 之间的整数`]; }, 2)
+        .catch(e=>{ log("compose",`<div class="err-line">✗ 模型调用失败：${escapeHtml(e.message)}</div>`); return null; });
+      if(res2){ const k=Number(res2.obj.plan); choice=hits[k-1];
+        log("compose",`<div class="ok-line">✓ 第 ${res2.attempts} 次尝试选中方案 ${k}</div>`); }
+      else { choice=hits[0]; composeFellBack=true;
+        log("compose",`<div class="warn-line">⚠ 已兜底到方案 1（确定性默认值）</div>`); }
+      logJson("compose","组合决策",{template:choice.id, suffix:choice.sx, actions:plan.action});
+      setDur("compose",performance.now()-t0);
+      setBadge("compose", composeFellBack?"fallback":"done");
+    }
 
     /* 阶段 4 */
     t0=performance.now(); setBadge("expand","running");
-    const {root,dataRows}=expandCard(plan,choice);
-    logJson("expand","插入的数据行（取自 TaskSpec sampleValue — 即确定性的“数据插入”）",dataRows);
+    let root, dataRows;
+    if(choice){
+      ({root,dataRows}=seedTplSkeleton(choice,{eventIds:plan.action}));
+      log("expand",`<div class="ok-line">✓ 已按选中模板 ${escapeHtml(choice.id)} 渲染骨架（数据行取自完整目录样例值）</div>`);
+    }else{
+      ({root,dataRows}=e2eGenericCard(plan));
+      log("expand",`<div class="warn-line">⚠ 未命中模板 — 以通用字段卡呈现（所选字段 + 样例值 + 动作胶囊）</div>`);
+    }
+    logJson("expand","插入的数据行（取自完整目录样例值 — 即确定性的“数据插入”）",dataRows);
     setDur("expand",performance.now()-t0); setBadge("expand","done");
 
     /* 阶段 5 */
@@ -1335,7 +1475,7 @@ async function batchPromptFromRow(row){
   const first=row.task==="second_layer"?batchFirstByCase.get(row.caseId):row;
   if(!first)throw new Error("找不到同 case 的第一层样本");
   const firstRaw=await chatJSON((first.messages||[]).filter(m=>m.role==="system"||m.role==="user"),"batch-plan",getCfg("device"));
-  const plan=extractJSON(firstRaw),planErrors=validatePlan(plan,Object.keys(REGISTRY.capabilities));
+  const plan=extractJSON(firstRaw),planErrors=miniValidatePlan(plan,Object.keys(REGISTRY.capabilities));
   if(planErrors.length)throw new Error("第一层校验失败："+planErrors.join("；"));
   const search=searchTemplates(plan),options=enumeratePlans(plan,search);
   let number=1;
@@ -1344,7 +1484,7 @@ async function batchPromptFromRow(row){
     const raw=await chatJSON((second.messages||[]).filter(m=>m.role==="system"||m.role==="user"),"batch-compose",getCfg("device"));
     number=Number(extractJSON(raw).plan);
   }else{
-    const raw=await chatJSON(composePromptMessages(batchRequest(row),plan,options),"batch-compose",getCfg("device"));
+    const raw=await chatJSON(miniComposePromptMessages(batchRequest(row),plan,options),"batch-compose",getCfg("device"));
     number=Number(extractJSON(raw).plan);
   }
   if(!Number.isInteger(number)||number<1||number>options.length)throw new Error("模型选择的方案序号无效："+number);
@@ -1401,17 +1541,20 @@ function seedActionCount(spec){ return spec.actionCount!=null?spec.actionCount:(
  *    其余尺寸按 training/validators.py 的 SUFFIXES_BY_ACTION_COUNT（0→Full，1→Hero/Full，2→Compact）；
  * ③ t.cap 与 capabilityId 相等，且 candidateFields 逐字为 t.shows 的子集。 */
 function seedNormPath(p){ return String(p).replace(/\/\d+(?=\/|$)/g, ""); }
-function seedSearchFull(seed){
-  const n=seedActionCount(seed);
+/* 通用完整库检索（种子区与 e2e 主链路共用）：cap 能力、fields 已选字段、actionCount 动作数、size 卡尺寸 */
+function searchFull(cap, fields, actionCount, size){
   let suffixes;
-  if(seed.size==="2x4") suffixes=(n===0?["WideFull"]:["WideHero","WideFull"]);
-  else suffixes=({0:["Full"],1:["Hero","Full"],2:["Compact"]})[n]||["Full"];
-  const fields=(seed.candidateFields||[]).map(seedNormPath);
+  if(size==="2x4") suffixes=(actionCount===0?["WideFull"]:["WideHero","WideFull"]);
+  else suffixes=({0:["Full"],1:["Hero","Full"],2:["Compact"]})[actionCount]||["Full"];
+  const norm=(fields||[]).map(seedNormPath);
   return TPL_LIBRARY.filter(t=>{
-    if(t.sx==="Support"||t.cap!==seed.capabilityId||!suffixes.includes(t.sx)) return false;
+    if(t.sx==="Support"||t.cap!==cap||!suffixes.includes(t.sx)) return false;
     const shows=t.shows.map(seedNormPath);
-    return fields.every(f=>shows.includes(f));
+    return norm.every(f=>shows.includes(f));
   });
+}
+function seedSearchFull(seed){
+  return searchFull(seed.capabilityId, seed.candidateFields||[], seedActionCount(seed), seed.size);
 }
 
 /* 目录查询：优先逐字命中；容忍模板 shows 里的数组下标（/events/0/title → /events/title） */
@@ -1478,9 +1621,9 @@ function seedTplSkeleton(tpl,spec){
 }
 /* ==== TPL_FULL_LIB_END ==== */
 
-/* ---- 内联种子目录（原 playground/seed_catalog.json，来自真实云侧资产：7 能力 86 字段 18 事件）----
- * d = 一句话释义；s = 样例值。保持单文件属性：页面可 file:// 直开，不做 fetch / script src。 */
-const SEED_CATALOG={"capabilities":{"ViewWeather":{"d":"查询指定地区的当前天气与未来数日天气预报","fields":{"/location/cityCode":{"d":"城市代码","s":"60814"},"/location/districtName":{"d":"区或县名称","s":"青浦区"},"/location/prefectureName":{"d":"城市名称","s":"上海市"},"/current/temperatureC":{"d":"当前温度的纯数值","s":"29"},"/current/temperatureText":{"d":"可直接显示的当前温度文本","s":"29℃"},"/current/condition":{"d":"当前天气现象","s":"多云"},"/current/feelsLikeC":{"d":"当前体感温度的纯数值","s":"31"},"/current/humidityPercent":{"d":"当前相对湿度的纯数值百分比","s":"68"},"/current/airQuality":{"d":"当前空气质量等级","s":"良"},"/current/windDirection":{"d":"当前风向","s":"东南风"},"/current/windLevel":{"d":"当前风力等级的纯整数","s":"2"},"/current/uvIndex":{"d":"当前紫外线等级","s":"中等"},"/current/coldLevel":{"d":"感冒指数","s":"低"},"/current/alertLevel":{"d":"预警信息","s":""},"/daily/date":{"d":"预报日期","s":"2026-08-06"},"/daily/weekday":{"d":"星期文本","s":"星期四"},"/daily/condition":{"d":"白天天气现象","s":"多云"},"/daily/temperatureRangeText":{"d":"可直接显示的最低温与最高温范围文本","s":"25℃ / 32℃"},"/daily/rainProbabilityPercent":{"d":"可直接显示的白天降雨概率文本","s":"20%"},"/daily/airQuality":{"d":"当天空气质量等级","s":"良"},"/daily/uvIndex":{"d":"当天紫外线等级","s":"中等"},"/daily/coldLevel":{"d":"感冒指数","s":"低"},"/updatedAt":{"d":"端侧完成天气查询和归一化的时间","s":"2026-08-06 09:00"}}},"GetCalendarEvents":{"d":"查询用户系统日历中的日程安排","fields":{"/eventCount":{"d":"查询到的日程记录总数量","s":"1"},"/events/entityName":{"d":"固定为 'CalendarEvent'","s":"CalendarEvent"},"/events/entityId":{"d":"系统日程的全局唯一实体ID","s":"example-event-001"},"/events/senderName":{"d":"日程数据标识符或发起方标识（如邀请人）","s":""},"/events/title":{"d":"日程标题","s":"项目例会"},"/events/eventLocation":{"d":"日程的具体地点描述","s":"会议室"},"/events/description":{"d":"日程的备注、摘要或补充叙述文本","s":"周例会"},"/events/dtStart":{"d":"格式化后的日程开始时间短文本","s":"14:00"},"/events/dtEnd":{"d":"格式化后的日程结束时间短文本","s":"15:00"},"/events/timeZone":{"d":"日程所处的时区标识","s":"Asia/Shanghai"},"/events/importantEventType":{"d":"日程事件的重要程度或分类枚举值（Type）","s":"0"},"/events/oneClickServiceType":{"d":"绑定的轻服务类型名称","s":"Meeting"},"/events/oneClickServiceLink":{"d":"一键直达的 URI 深度跳转链接","s":""},"/events/isServiceValid":{"d":"跳转服务连接是否有效","s":"0"},"/events/startDate":{"d":"日程开始日期格式化文本","s":"08-06"},"/events/countdownDays":{"d":"距离日程开始的自然日天数纯整数","s":"0"},"/events/isAllDay":{"d":"标识该日程是否为全天日程","s":"False"},"/updatedAt":{"d":"端侧完成数据组装的时间戳字符串","s":"2026-08-06 09:00"}}},"GetCountdownDays":{"d":"计算指定的日历日期距离今天还有多少天","fields":{"/countdownDays":{"d":"距离目标日期的自然日天数纯整数","s":"30"}}},"GetAppUsageDuration":{"d":"获取指定应用的使用时长数据","fields":{"/appUsage/appName":{"d":"应用名称文本","s":"示例应用"},"/appUsage/durationText":{"d":"可直接显示的应用今日运行总时长文本","s":"25 分钟"},"/updatedAt":{"d":"端侧完成数据查询和归一化的时间","s":"2026-08-06 09:00"}}},"GetEarphoneInfo":{"d":"查询当前手机连接的蓝牙耳机状态，包括耳机名称、主盒与左右耳的","fields":{"/isConnected":{"d":"当前是否有蓝牙耳机处于连接活跃状态","s":"True"},"/earphoneName":{"d":"耳机的设备广播名称","s":"示例耳机"},"/batteryLevel":{"d":"耳机盒（或整体）当前剩余电量的纯整数百分比","s":"80"},"/chargingStatusDesc":{"d":"耳机盒（或整体）当前的充电状态中文语义描述","s":"未充电"},"/leftBatteryLevel":{"d":"左耳机当前剩余电量的纯整数百分比","s":"76"},"/leftChargingStatusDesc":{"d":"左耳机当前的充电状态中文语义描述","s":"未充电"},"/rightBatteryLevel":{"d":"右耳机当前剩余电量的纯整数百分比","s":"78"},"/rightChargingStatusDesc":{"d":"右耳机当前的充电状态中文语义描述","s":"未充电"},"/updatedAt":{"d":"端侧完成多源数据感知和融合的时间戳字符串","s":"2026-08-06 09:00"}}},"GetPhoneBatteryInfo":{"d":"获取手机本机的全量电池状态快照，返回经过端侧语义化和字符化转","fields":{"/batterySOC":{"d":"当前手机设备剩余电量的纯整数百分比","s":"68"},"/batterySOCText":{"d":"可直接显示的当前手机设备剩余电量文本","s":"68%"},"/chargingStatusDesc":{"d":"当前设备电池的充电状态文本描述","s":"未充电"},"/batteryCapacityLevelDesc":{"d":"设备电池电量等级的语义化文本描述","s":"正常电量"},"/healthStatusDesc":{"d":"当前设备电池的物理健康状态文本描述","s":"正常"},"/pluggedTypeDesc":{"d":"当前设备连接的充电器类型文本描述","s":"未连接充电器"},"/batteryTemperatureText":{"d":"可直接显示的当前设备电池实时温度文本","s":"29.0 ℃"},"/nowCurrentText":{"d":"可直接显示的当前设备电池实时电流文本","s":"-151 mA"},"/voltageText":{"d":"可直接显示的当前设备电池实时电压文本","s":"4 V"},"/isBatteryPresentText":{"d":"当前设备物理电池是否在位或受支持的状态描述","s":"在位"},"/updatedAt":{"d":"端侧完成全量电量状态字符化转换的系统时间文本","s":"2026-08-06 09:00"}}},"GetHealthAndSportSummary":{"d":"一键合并查询用户指定时间段内的大健康、日常大盘活动与单次专业","fields":{"/targetDateText":{"d":"该组健康与运动数据所归属的确切日期文本","s":"2026-08-06"},"/sleepScore":{"d":"睡眠综合得分","s":"82"},"/sleepStatus":{"d":"基于得分智能生成的睡眠状态语义判定","s":"良好"},"/sleepTypeDesc":{"d":"睡眠记录方式或类型的描述","s":"科学睡眠"},"/nightSleepDurationText":{"d":"可直接显示的夜间正式睡眠总时长文本","s":"7小时1分"},"/deepSleepDurationText":{"d":"可直接显示的夜间正式睡眠深睡总时长文本","s":"2小时15分"},"/totalNapDurationText":{"d":"可直接显示的白天零星小睡累计总时长文本","s":"0分"},"/fallAsleepTimeText":{"d":"格式化后的确切入睡时刻短文本（HH:mm）","s":"23:15"},"/wakeupTimeText":{"d":"格式化后的确切醒来时刻短文本（HH:mm）","s":"07:30"},"/dailySteps":{"d":"与最新睡眠同属一天的日常全天累计活动总步数纯","s":"6200"},"/dailyTotalCaloriesText":{"d":"可直接显示的日常活动总消耗热量文本","s":"420 千卡"},"/dailyDistanceText":{"d":"可直接显示的日常活动总距离文本","s":"4.60 公里"},"/exerciseTypeName":{"d":"最近一次发生的单次专业运动训练类型的中文映射","s":"户外跑步"},"/exerciseStartTimeText":{"d":"专业运动开始的确切时刻文本（HH:mm）","s":"18:30"},"/exerciseEndTimeText":{"d":"专业运动结束的确切时刻文本（HH:mm）","s":"19:10"},"/exerciseDurationText":{"d":"可直接显示的单次专业运动实际持续时长文本","s":"40分"},"/exerciseCalorieText":{"d":"可直接显示的单次专业运动净热量消耗文本","s":"260 千卡"},"/exerciseHeartRateAvg":{"d":"专业运动期间平均心率的纯整数","s":"135"},"/exerciseHeartRateMax":{"d":"专业运动期间最大心率的纯整数","s":"168"},"/exerciseHeartRateMin":{"d":"专业运动期间最低心率的纯整数","s":"96"},"/updatedAt":{"d":"端侧完成多实体规整转换的系统格式化时间戳字符","s":"2026-08-06 09:00"}}}},"events":{"event.call.phone":"打开拨号界面；提供电话号码时预填该号码","event.clean.memory":"立即清理手机运行内存并释放系统资源","event.open.settings.dnd":"打开系统设置的情景模式页，可配置免打扰或专注模式","event.open.settings.bluetooth":"打开系统设置的蓝牙设置页","event.open.settings.battery":"打开系统设置的电池页","event.open.settings.batteryHealth":"打开系统设置的电池健康页","event.open.settings.parentControl":"打开系统设置的健康使用设备页，可设置应用使用时长","event.open.settings.storage":"打开系统设置的存储空间页","event.open.weather":"打开天气应用中与当前卡片城市对应的天气详情页","event.open.clock.alarm":"打开时钟应用的闹钟首页","event.open.music.daily":"打开音乐应用的“每日30首”歌单","event.open.music.favorite":"打开音乐应用的收藏歌单（心动歌单）","event.open.health.sport":"打开运动健康应用的锻炼页","event.open.health.sleep":"打开运动健康应用的睡眠详情页","event.enter.meeting":"打开所选日程关联的会议链接","event.viewCalendarEvent":"打开所选日程的详情页","event.startNavigate":"打开地图应用，导航回家或前往公司","event.setPowerSavingMode":"开启或关闭系统省电模式"}};
+/* ---- 种子目录 = 完整云侧目录的别名（原独立拷贝已消灭，单一数据源 FULL_CATALOG）----
+ * 种子区只读 capabilities.<capId>.{d,fields} 与 events，多出的 themes/suggestedEvents/genericEvents 键不影响语义。 */
+const SEED_CATALOG=FULL_CATALOG;
 
 /* ---- 审阅卡（主体）：不还原真实卡片，而是把「query 应点名的字段/动作」摆出来供人眼比对 ---- */
 const SEED_RC={bg:"#20304e",primary:"#FFFFFF",support:"#D9FFFFFF",err:"#FF6B6B",pillBg:"#33FFFFFF",pillErrBg:"#33FF6B6B"};
@@ -1647,6 +1790,9 @@ document.getElementById("seedRun").addEventListener("click",seedRenderAll);
 document.getElementById("seedClear").addEventListener("click",()=>{
   document.getElementById("seedResults").innerHTML=""; document.getElementById("seedStatus").textContent="";
 });
+
+/* 首次渲染提示词对比（置于脚本末尾：searchFull 依赖的 TPL_LIBRARY 为 const，需先完成初始化） */
+renderPromptCompare();
 
 </script>
 </body>
