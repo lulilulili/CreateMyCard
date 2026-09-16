@@ -187,7 +187,8 @@
       全程零网络、零模型调用：每条非边界种子先用内联的真实云侧目录（7 能力 86 字段 18 事件）拼一张确定性<b>审阅卡</b>——
       标题为能力释义，每个 candidateFields 一行「字段释义 + 样例值」，每个 eventIds 一个胶囊按钮，
       并列出「应被 query 点名的清单」供与原话人眼比对（全选金标：query 必须点名每个字段和每个动作）。
-      模板路由（searchTemplates → enumeratePlans → expandCard）结果仅作附注；boundary 条目不进路由，仅人工判断。</div>
+      模板路由（seedSearchFull，内联完整云侧模板库 87 模板 · 8 能力，近似首层规则：排除 Support、按尺寸与动作数选后缀、字段子集匹配（数组下标透明））
+      结果仅作附注，命中模板可点击查看近似骨架渲染；boundary 条目不进路由，仅人工判断。</div>
     <label>taskspec 草稿 JSONL（一行一条，可多行）</label>
     <textarea id="seedInput" style="min-height:130px" placeholder='{"caseId":"taskspec-d01","userQuery":"…","capabilityId":"ViewWeather","candidateFields":["/current/temperatureText"],"eventIds":[],"boundary":false,"notes":"…"}'></textarea>
     <div class="batch-toolbar" style="margin-top:10px">
@@ -1266,41 +1267,99 @@ loadBatchDataset().catch(e=>batchDatasetMeta.textContent="✗ "+e.message);
  *  冻结种子直渲 — taskspec 草稿 JSONL → 确定性审阅卡（主体）+ 模板路由（附注）
  *  （零网络请求、零模型调用；boundary 条目只展示不路由）
  *  审阅卡用内联的真实云侧目录 SEED_CATALOG 渲染，46 条种子全部可看；
- *  模板路由仍走本页迷你 REGISTRY，覆盖有限，未命中只作一行附注。
+ *  模板路由走内联的完整云侧模板库 TPL_LIBRARY（87 模板 · 8 能力），
+ *  按云侧首层规则近似过滤（seedSearchFull），命中模板做近似骨架渲染。
  * ================================================================ */
-/* 种子词表 → 演练场迷你注册表的映射：
- * 草稿的能力/字段/事件命名来自真实云侧注册表，比本页内置 REGISTRY 大得多；
- * 这里只做少量语义等价映射，映射不到的字段原样保留，让 Search 诚实地报未命中。 */
-const SEED_CAP_MAP={ViewWeather:"ViewWeather",GetPhoneBatteryInfo:"PhoneBattery",GetCalendarEvents:"CalendarToday"};
-const SEED_FIELD_MAP={
-  GetPhoneBatteryInfo:{"/batterySOCText":"/levelPercent","/chargingStatusDesc":"/chargeStateText"},
-  GetCalendarEvents:{"/events/title":"/next/title","/events/dtStart":"/next/timeText",
-                     "/events/dtEnd":"/next/timeText","/events/eventLocation":"/next/location"}
-};
-const SEED_EVENT_MAP={"event.open.weather":"event.open.weather","event.viewCalendarEvent":"event.open.calendar",
-  "event.open.settings.battery":"event.open.battery","event.open.settings.batteryHealth":"event.open.battery"};
+/* ==== TPL_FULL_LIB_BEGIN（本段为纯常量与纯函数，node 冒烟可整段切出） ==== */
+/* ---- 完整云侧模板库（原 playground/tpl_library.json 内联，保持单文件 file:// 可开）----
+ * 87 模板 · 8 能力；后缀分布 Full 20 / Hero 18 / Compact 17 / WideFull 11 / WideHero 2 / Support 19。
+ * 字段：id 模板ID；cap 能力；sx 后缀；shows 展示字段；pd 主字段；d 一句话描述。 */
+const TPL_LIBRARY=[{"id":"AppUsageOverviewFull@1","cap":"GetAppUsageDuration","sx":"Full","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，无动作时使用"},{"id":"AppUsageOverviewHero@1","cap":"GetAppUsageDuration","sx":"Hero","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，为底部 PillAction 预留空"},{"id":"AppUsageOverviewCompact@1","cap":"GetAppUsageDuration","sx":"Compact","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，展示应用名称和时长"},{"id":"AppUsageOverviewWideFull@1","cap":"GetAppUsageDuration","sx":"WideFull","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，可补充更新时间"},{"id":"AppUsageOverviewWideHero@1","cap":"GetAppUsageDuration","sx":"WideHero","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，可补充更新时间"},{"id":"AppUsageOverviewSupport@1","cap":"GetAppUsageDuration","sx":"Support","shows":["/appUsage/appName","/appUsage/durationText"],"pd":["/appUsage/appName","/appUsage/durationText"],"d":"单个应用的当日使用时长摘要，展示应用名称和时长"},{"id":"BatteryOverviewPercentRingHero@1","cap":"GetPhoneBatteryInfo","sx":"Hero","shows":["/batterySOC","/batterySOCText"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量百分比环形 Hero；居中展示电量进度环和剩余电量百分比"},{"id":"BatteryOverviewNormalFull@1","cap":"GetPhoneBatteryInfo","sx":"Full","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewChargingProgressHero@1","cap":"GetPhoneBatteryInfo","sx":"Hero","shows":["/batterySOC","/chargingStatusDesc","/healthStatusDesc","/pluggedTypeDesc"],"pd":["/batterySOC"],"d":"手机电量充电进度 Hero；用于 2x2 Hero 加一个 Pi"},{"id":"BatteryOverviewHealthLevelHero@1","cap":"GetPhoneBatteryInfo","sx":"Hero","shows":["/healthStatusDesc","/batteryCapacityLevelDesc"],"pd":["/healthStatusDesc"],"d":"电池健康与当前电量等级 Hero；用于 2x2 Hero 加一个"},{"id":"BatteryOverviewNormalHero@1","cap":"GetPhoneBatteryInfo","sx":"Hero","shows":["/batterySOC","/batteryCapacityLevelDesc"],"pd":["/batterySOC"],"d":"手机电量摘要，面向 2x2 底部 PillAction 预留空间"},{"id":"BatteryOverviewChargingFull@1","cap":"GetPhoneBatteryInfo","sx":"Full","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewLowFull@1","cap":"GetPhoneBatteryInfo","sx":"Full","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewNormalWideFull@1","cap":"GetPhoneBatteryInfo","sx":"WideFull","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewChargingWideFull@1","cap":"GetPhoneBatteryInfo","sx":"WideFull","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewLowWideFull@1","cap":"GetPhoneBatteryInfo","sx":"WideFull","shows":["/batterySOC","/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewNormalWeatherCompact@1","cap":"GetPhoneBatteryInfo","sx":"Compact","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewChargingWeatherCompact@1","cap":"GetPhoneBatteryInfo","sx":"Compact","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewLowWeatherCompact@1","cap":"GetPhoneBatteryInfo","sx":"Compact","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewStatusIconCompact@1","cap":"GetPhoneBatteryInfo","sx":"Compact","shows":["/batterySOCText"],"pd":["/batterySOCText"],"d":"手机电量状态图标紧凑行；用于 2x2 紧凑内容区域，展示电量百分"},{"id":"BatteryOverviewProgressSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOC","/batterySOCText","/batteryCapacityLevelDesc"],"pd":["/batterySOC","/batterySOCText"],"d":"手机电量进度条紧凑区；用于 2x2 单 Compact 加两个 "},{"id":"BatteryOverviewNormalWeatherSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewChargingWeatherSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewLowWeatherSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOCText","/chargingStatusDesc","/batteryCapacityLevelDesc"],"pd":["/batterySOCText"],"d":"手机电量摘要，展示电量数值、文本、充电状态和电量等级"},{"id":"BatteryOverviewTemperatureIconSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batteryTemperatureText"],"pd":["/batteryTemperatureText"],"d":"手机电池温度图标紧凑行；用于 2x2 紧凑内容区域，下层展示电池"},{"id":"BatteryOverviewStatusIconSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOCText"],"pd":["/batterySOCText"],"d":"手机电量状态图标紧凑行；用于 2x2 紧凑内容区域，展示电量百分"},{"id":"BatteryOverviewNormalPowerTemperatureIconSupport@1","cap":"GetPhoneBatteryInfo","sx":"Support","shows":["/batterySOC","/batteryTemperatureText"],"pd":["/batterySOC","/batteryTemperatureText"],"d":"正常电量状态下的手机电量与电池温度图标紧凑行；用于 2x2 紧凑"},{"id":"ScheduleOverviewNextEventHero@1","cap":"GetCalendarEvents","sx":"Hero","shows":["/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/title"],"d":"下一个日程 Hero，展示标题、时间范围和地点，可选日历图标与标"},{"id":"ScheduleOverviewReminderHero@1","cap":"GetCalendarEvents","sx":"Hero","shows":["/events/0/title","/events/0/dtStart","/events/0/remindTime/0"],"pd":["/events/0/title"],"d":"日程提醒 Hero，以时间轴展示标题、开始时间和提前提醒"},{"id":"ScheduleOverviewTimezoneFull@1","cap":"GetCalendarEvents","sx":"Full","shows":["/events/0/timeZone","/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/timeZone","/events/0/title"],"d":"时区日程 Full，展示时区、标题、时间范围和地点"},{"id":"ScheduleOverviewDateFull@1","cap":"GetCalendarEvents","sx":"Full","shows":["/events/0/startDate","/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/startDate","/events/0/title"],"d":"日期日程 Full，展示日期、标题、时间范围和地点"},{"id":"ScheduleOverviewDatedMeetingHero@1","cap":"GetCalendarEvents","sx":"Hero","shows":["/events/0/startDate","/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/startDate","/events/0/title"],"d":"带日期会议 Hero，展示日期、标题、时间范围和地点"},{"id":"ScheduleOverviewNextEventLocationFull@1","cap":"GetCalendarEvents","sx":"Full","shows":["/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/title","/events/0/dtStart"],"d":"下一个日程 Full，展示标题、时间范围和地点，可选来源、时间与"},{"id":"ScheduleOverviewMeetingWideFull@1","cap":"GetCalendarEvents","sx":"WideFull","shows":["/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/title","/events/0/dtStart"],"d":"宽版会议摘要，展示标题、时间范围和地点"},{"id":"ScheduleOverviewMeetingSourceWideFull@1","cap":"GetCalendarEvents","sx":"WideFull","shows":["/events/0/title","/events/0/dtStart","/events/0/dtEnd","/events/0/eventLocation"],"pd":["/events/0/title","/events/0/dtStart"],"d":"带来源图标的宽版会议摘要，展示标题、时间范围和地点"},{"id":"CountdownOverviewFull@1","cap":"GetCountdownDays","sx":"Full","shows":["/countdownDays"],"pd":["/countdownDays"],"d":"通用事件的剩余天数 Full 摘要，可选静态标题"},{"id":"BluetoothDeviceOverviewHero@1","cap":"GetEarphoneInfo","sx":"Hero","shows":["/isConnected","/earphoneName","/leftBatteryLevel","/rightBatteryLevel"],"pd":["/isConnected","/earphoneName"],"d":"耳机 Hero，展示连接状态、名称和左右耳电量，可选左右耳图标"},{"id":"BluetoothDeviceOverviewCaseStatusCompact@1","cap":"GetEarphoneInfo","sx":"Compact","shows":["/batteryLevel","/chargingStatusDesc"],"pd":["/batteryLevel","/chargingStatusDesc"],"d":"耳机盒状态 Compact，展示盒电量与充电状态，可选左右耳充电"},{"id":"BluetoothDeviceOverviewEarbudsPhoneWideFull@1","cap":"GetEarphoneInfo","sx":"WideFull","shows":["/isConnected","/earphoneName"],"pd":["/isConnected","/earphoneName"],"d":"耳机与手机宽版摘要，展示连接状态和名称，可选盒与左右耳电量"},{"id":"BluetoothDeviceOverviewEarbudsDynamicWideFull@1","cap":"GetEarphoneInfo","sx":"WideFull","shows":["/isConnected","/earphoneName"],"pd":["/isConnected","/earphoneName"],"d":"耳机动态宽版摘要，展示连接状态和名称，可选盒与左右耳电量"},{"id":"BluetoothDeviceOverviewEarbudsSupport@1","cap":"GetEarphoneInfo","sx":"Support","shows":["/leftBatteryLevel","/rightBatteryLevel"],"pd":["/leftBatteryLevel","/rightBatteryLevel"],"d":"耳机电量 Support，展示左右耳电量和设备图标；仅供兼容 L"},{"id":"BluetoothDeviceOverviewEarbudPairFull@1","cap":"GetEarphoneInfo","sx":"Full","shows":["/isConnected","/earphoneName","/batteryLevel","/leftBatteryLevel","/rightBatteryLevel"],"pd":["/isConnected","/earphoneName"],"d":"耳机成对 Full，展示连接状态、名称、盒与左右耳电量"},{"id":"BluetoothDeviceOverviewCompleteWideFull@1","cap":"GetEarphoneInfo","sx":"WideFull","shows":["/isConnected","/earphoneName","/batteryLevel","/leftBatteryLevel","/rightBatteryLevel"],"pd":["/isConnected","/earphoneName"],"d":"耳机完整宽版摘要，展示连接状态、名称、盒与左右耳电量"},{"id":"BluetoothDeviceOverviewEarbudPairCompact@1","cap":"GetEarphoneInfo","sx":"Compact","shows":["/earphoneName","/leftBatteryLevel","/rightBatteryLevel"],"pd":["/earphoneName"],"d":"耳机成对 Compact，展示名称和左右耳电量"},{"id":"BluetoothDeviceOverviewCompletePhoneWideFull@1","cap":"GetEarphoneInfo","sx":"WideFull","shows":["/isConnected","/earphoneName","/batteryLevel","/leftBatteryLevel","/rightBatteryLevel"],"pd":["/isConnected","/earphoneName"],"d":"耳机与手机完整宽版摘要，展示连接状态、名称、盒与左右耳电量"},{"id":"ActivityOverviewCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/dailySteps"],"pd":["/dailySteps"],"d":"每日步数紧凑摘要，展示步数，可使用步数图标"},{"id":"ActivityOverviewHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/dailySteps"],"pd":["/dailySteps"],"d":"今日活动步数主视觉，展示步数和固定万步基准进度，可使用步数图标"},{"id":"ActivityOverviewWideHero@1","cap":"GetHealthAndSportSummary","sx":"WideHero","shows":["/dailySteps","/dailyTotalCaloriesText","/dailyDistanceText","/targetDateText"],"pd":["/dailySteps"],"d":"每日活动摘要，展示步数，可补充热量、距离和目标日期"},{"id":"ActivityOverviewFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/dailySteps","/dailyTotalCaloriesText","/dailyDistanceText"],"pd":["/dailySteps"],"d":"今日活动完整摘要，展示步数、固定万步基准进度、消耗热量和运动距离"},{"id":"ActivityOverviewWideFull@1","cap":"GetHealthAndSportSummary","sx":"WideFull","shows":["/dailySteps","/dailyTotalCaloriesText","/dailyDistanceText","/targetDateText"],"pd":["/dailySteps"],"d":"每日活动摘要，展示步数，可补充热量、距离和目标日期"},{"id":"WorkoutOverviewFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/exerciseTypeName","/exerciseDurationText","/exerciseCalorieText","/exerciseEndTimeText"],"pd":["/exerciseTypeName","/exerciseDurationText"],"d":"最近一次单次运动训练摘要，展示运动类型、该次热量、时长和结束时间"},{"id":"WorkoutOverviewCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/exerciseTypeName","/exerciseDurationText","/exerciseCalorieText"],"pd":["/exerciseTypeName","/exerciseDurationText"],"d":"最近一次单次运动训练摘要，展示运动类型、该次热量和时长，可使用运"},{"id":"WorkoutOverviewHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/exerciseTypeName","/exerciseDurationText","/exerciseCalorieText"],"pd":["/exerciseTypeName","/exerciseDurationText"],"d":"最近一次单次运动训练摘要，展示运动类型、该次热量和时长，可使用运"},{"id":"HeartRateOverviewFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewIconFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedIconFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewIconCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedIconCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewIconHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率主视觉，展示平均心率，使用心率图标"},{"id":"HeartRateOverviewHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率主视觉，展示平均心率"},{"id":"HeartRateOverviewUpdatedHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率主视觉，展示平均心率，可补充更新时间"},{"id":"HeartRateOverviewUpdatedIconHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率主视觉，展示平均心率，可补充更新时间，使用心率图标"},{"id":"SleepOverviewFull@1","cap":"GetHealthAndSportSummary","sx":"Full","shows":["/nightSleepDurationText","/sleepScore","/sleepStatus"],"pd":["/nightSleepDurationText"],"d":"睡眠情况完整摘要，展示时长、得分进度和状态，可使用睡眠图标"},{"id":"SleepOverviewHero@1","cap":"GetHealthAndSportSummary","sx":"Hero","shows":["/nightSleepDurationText","/sleepScore"],"pd":["/nightSleepDurationText"],"d":"睡眠情况主视觉，展示时长和得分进度，可使用睡眠图标"},{"id":"SleepOverviewCompact@1","cap":"GetHealthAndSportSummary","sx":"Compact","shows":["/nightSleepDurationText","/sleepScore"],"pd":["/nightSleepDurationText"],"d":"睡眠情况紧凑摘要，展示时长和得分环，可使用睡眠图标"},{"id":"ActivityOverviewSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/dailySteps"],"pd":["/dailySteps"],"d":"每日步数紧凑摘要，展示步数，可使用步数图标"},{"id":"WorkoutOverviewSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/exerciseTypeName","/exerciseDurationText","/exerciseCalorieText"],"pd":["/exerciseTypeName","/exerciseDurationText"],"d":"最近一次单次运动训练摘要，展示运动类型、该次热量和时长，可使用运"},{"id":"HeartRateOverviewSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewIconSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/exerciseHeartRateAvg"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"HeartRateOverviewUpdatedIconSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/exerciseHeartRateAvg","/updatedAt"],"pd":["/exerciseHeartRateAvg"],"d":"运动平均心率摘要，可补充更新时间"},{"id":"SleepOverviewSupport@1","cap":"GetHealthAndSportSummary","sx":"Support","shows":["/nightSleepDurationText","/sleepScore"],"pd":["/nightSleepDurationText"],"d":"睡眠情况紧凑摘要，展示时长和得分环，可使用睡眠图标"},{"id":"ResourceUsageOverviewFull@1","cap":"GetSystemMemInfo","sx":"Full","shows":["/usagePercent","/availableMemText","/totalMemText"],"pd":["/usagePercent"],"d":"系统内存占用摘要，展示占用率、可用内存和总内存"},{"id":"ResourceUsageOverviewCompact@1","cap":"GetSystemMemInfo","sx":"Compact","shows":["/usagePercent","/availableMemText","/totalMemText"],"pd":["/usagePercent"],"d":"系统内存占用摘要，展示占用率、可用内存和总内存"},{"id":"ResourceUsageOverviewSupport@1","cap":"GetSystemMemInfo","sx":"Support","shows":["/usagePercent","/availableMemText","/totalMemText"],"pd":["/usagePercent"],"d":"系统内存占用摘要，展示占用率、可用内存和总内存"},{"id":"WeatherOverviewCompact@1","cap":"ViewWeather","sx":"Compact","shows":["/current/temperatureText","/location/districtName","/current/condition","/current/coldLevel"],"pd":["/current/temperatureText"],"d":"天气 Compact，展示城市、温度、天气现象和感冒指数，可选天"},{"id":"WeatherOverviewUvCompact@1","cap":"ViewWeather","sx":"Compact","shows":["/current/temperatureText","/current/uvIndex","/location/districtName","/current/condition"],"pd":["/current/temperatureText","/current/uvIndex"],"d":"紫外线天气 Compact，展示城市、温度、天气现象和紫外线等级"},{"id":"WeatherOverviewTemperatureSupport@1","cap":"ViewWeather","sx":"Support","shows":["/current/temperatureText","/location/districtName","/current/condition","/current/coldLevel"],"pd":["/current/temperatureText"],"d":"温度天气 Support，展示城市、温度、天气现象和感冒风险；仅"},{"id":"WeatherOverviewTemperatureUvSupport@1","cap":"ViewWeather","sx":"Support","shows":["/current/temperatureText","/current/uvIndex","/location/districtName","/current/condition"],"pd":["/current/temperatureText","/current/uvIndex"],"d":"紫外线天气 Support，展示城市、温度、天气现象和紫外线等级"},{"id":"WeatherOverviewHero@1","cap":"ViewWeather","sx":"Hero","shows":["/current/temperatureText","/location/districtName","/current/condition","/current/coldLevel"],"pd":["/current/temperatureText"],"d":"温度天气 Hero，展示城市、温度、天气现象和感冒指数，可选天气"},{"id":"WeatherOverviewFull@1","cap":"ViewWeather","sx":"Full","shows":["/current/temperatureText","/location/districtName","/current/condition","/current/airQuality","/current/coldLevel"],"pd":["/current/temperatureText"],"d":"温度天气 Full，展示城市、温度、天气现象、空气质量和感冒指数"},{"id":"WeatherOverviewHumidityFull@1","cap":"ViewWeather","sx":"Full","shows":["/current/humidityPercent","/location/districtName","/current/temperatureText","/current/condition","/current/airQuality","/current/coldLevel"],"pd":["/current/humidityPercent"],"d":"湿度天气 Full，展示城市、温度、天气现象、湿度、空气质量和感"},{"id":"WeatherOverviewUvFull@1","cap":"ViewWeather","sx":"Full","shows":["/current/uvIndex","/location/districtName","/current/temperatureText","/current/condition","/current/airQuality","/current/coldLevel"],"pd":["/current/uvIndex"],"d":"紫外线天气 Full，展示城市、温度、天气现象、紫外线、空气质量"},{"id":"WeatherOverviewAirQualityHero@1","cap":"ViewWeather","sx":"Hero","shows":["/current/airQuality","/location/districtName","/current/condition","/current/coldLevel"],"pd":["/current/airQuality"],"d":"空气质量天气 Hero，展示城市、天气现象、空气质量和感冒指数"}];
 
-function seedBuildPlan(spec){
-  const capId=SEED_CAP_MAP[spec.capabilityId];
-  if(!capId) return {reason:"能力 "+spec.capabilityId+" 未内置于演练场迷你注册表（当前仅内置 ViewWeather、GetPhoneBatteryInfo→PhoneBattery、GetCalendarEvents→CalendarToday 三个演示能力）"};
-  const cap=REGISTRY.capabilities[capId];
-  const mapNotes=[],unknown=[],fields=[];
-  for(const f of (spec.candidateFields||[])){
-    const m=(SEED_FIELD_MAP[spec.capabilityId]||{})[f]||f;
-    if(m!==f) mapNotes.push("字段 "+f+" → "+m);
-    if(!cap.fields[m]&&!unknown.includes(f)) unknown.push(f);
-    if(!fields.includes(m)) fields.push(m);
-  }
-  const defEvt=REGISTRY.events.find(e=>e.cap===capId);
-  const action=[];
-  for(const ev of (spec.eventIds||[]).slice(0,2)){
-    const m=SEED_EVENT_MAP[ev]||(defEvt&&defEvt.id);
-    if(!m) continue;
-    if(m!==ev) mapNotes.push("事件 "+ev+" → "+m+"（近似映射，仅用于布局与按钮演示）");
-    action.push(m);
-  }
-  return {plan:{theme:REGISTRY.defaultTheme[capId],capability:capId,fields,action},mapNotes,unknown};
+function seedActionCount(spec){ return spec.actionCount!=null?spec.actionCount:(spec.eventIds||[]).length; }
+
+/* 云侧首层 Search 规则的近似：
+ * ① 排除 sx=="Support"（layout-scoped 组合的子槽位，不能独立成卡）；
+ * ② 2x4 按动作数选 Wide 后缀（0→WideFull，≥1→WideHero/WideFull）；
+ *    其余尺寸按 training/validators.py 的 SUFFIXES_BY_ACTION_COUNT（0→Full，1→Hero/Full，2→Compact）；
+ * ③ t.cap 与 capabilityId 相等，且 candidateFields 逐字为 t.shows 的子集。 */
+function seedNormPath(p){ return String(p).replace(/\/\d+(?=\/|$)/g, ""); }
+function seedSearchFull(seed){
+  const n=seedActionCount(seed);
+  let suffixes;
+  if(seed.size==="2x4") suffixes=(n===0?["WideFull"]:["WideHero","WideFull"]);
+  else suffixes=({0:["Full"],1:["Hero","Full"],2:["Compact"]})[n]||["Full"];
+  const fields=(seed.candidateFields||[]).map(seedNormPath);
+  return TPL_LIBRARY.filter(t=>{
+    if(t.sx==="Support"||t.cap!==seed.capabilityId||!suffixes.includes(t.sx)) return false;
+    const shows=t.shows.map(seedNormPath);
+    return fields.every(f=>shows.includes(f));
+  });
 }
+
+/* 目录查询：优先逐字命中；容忍模板 shows 里的数组下标（/events/0/title → /events/title） */
+function seedFieldInfo(capId,path){
+  const cap=(SEED_CATALOG.capabilities||{})[capId];
+  if(!cap||!cap.fields) return null;
+  if(cap.fields[path]) return cap.fields[path];
+  const norm="/"+path.split("/").filter(s=>s!==""&&!/^\d+$/.test(s)).join("/");
+  return cap.fields[norm]||null;
+}
+
+/* 命中模板的近似骨架渲染：按后缀拼 Col/RowC/Txt 树（renderPreview 可直接渲染）。
+ * 标签与样例值查 SEED_CATALOG；pd 主字段放大加粗（与审阅卡的主次做法一致）。
+ * Full/WideFull：标题（模板 d）+ shows 逐行「释义+样例值」，无动作胶囊；
+ * Hero/WideHero：pd[0] 大字 + 其余字段小字 + 底部 1 个动作胶囊（seed.eventIds[0] 释义，无则“打开”）；
+ * Compact：pd 主字段行 + 底部两个并排小胶囊（seed.eventIds 两事件释义）。 */
+function seedTplSkeleton(tpl,spec){
+  const capId=tpl.cap;
+  const wide=tpl.sx.indexOf("Wide")===0;
+  const dataRows=[];
+  const val=path=>{
+    const f=seedFieldInfo(capId,path);
+    const abs="/tpl"+path;
+    if(!dataRows.find(r=>r[0]===abs)) dataRows.push([abs,(f&&f.s!=null&&f.s!=="")?f.s:"—"]);
+    return {path:abs};
+  };
+  const label=path=>{ const f=seedFieldInfo(capId,path); return f?f.d:path+"（不在目录）"; };
+  const evDesc=id=>(SEED_CATALOG.events||{})[id]||null;
+  const pill=(text,small)=>RowC({width:small?undefined:"matchParent",layoutWeight:small?1:undefined,
+      height:small?22:24,justifyContent:"center",alignItems:"center",
+      backgroundColor:SEED_RC.pillBg,borderRadius:small?11:12},
+    Txt(text,{fontSize:10.5,fontWeight:"500",fontColor:SEED_RC.primary,maxLines:1}));
+  const fieldRow=(path,big)=>RowC({width:"matchParent",space:8,justifyContent:"spaceBetween",alignItems:"center"},
+    Txt(label(path),{fontSize:10.5,fontColor:SEED_RC.support,layoutWeight:1,maxLines:1}),
+    Txt(val(path),big?{fontSize:16,fontWeight:"bold",fontColor:SEED_RC.primary,maxLines:1}
+                     :{fontSize:11,fontWeight:"500",fontColor:SEED_RC.primary,maxLines:1}));
+  const pd=(tpl.pd&&tpl.pd.length)?tpl.pd:tpl.shows.slice(0,1);
+  const kids=[];
+  if(tpl.sx==="Full"||tpl.sx==="WideFull"){
+    kids.push(Txt(tpl.d,{fontSize:11.5,fontWeight:"bold",fontColor:SEED_RC.primary,maxLines:2}));
+    kids.push(Col({width:"matchParent",space:3},...tpl.shows.map(p=>fieldRow(p,pd.includes(p)))));
+  }else if(tpl.sx==="Hero"||tpl.sx==="WideHero"){
+    const heroP=pd[0];
+    kids.push(Col({width:"matchParent",space:1,alignItems:"start"},
+      Txt(label(heroP),{fontSize:10.5,fontColor:SEED_RC.support,maxLines:1}),
+      Txt(val(heroP),{fontSize:28,fontWeight:"bold",fontColor:SEED_RC.primary,maxLines:1})));
+    const rest=tpl.shows.filter(p=>p!==heroP);
+    if(rest.length) kids.push(Col({width:"matchParent",space:2,layoutWeight:1},...rest.map(p=>fieldRow(p,false))));
+    const ev=(spec.eventIds||[])[0];
+    kids.push(pill((ev&&evDesc(ev))||"打开"));
+  }else{ /* Compact */
+    kids.push(RowC({width:"matchParent",space:10,alignItems:"end"},
+      ...pd.slice(0,2).map(p=>Col({space:1,alignItems:"start",layoutWeight:1},
+        Txt(label(p),{fontSize:10.5,fontColor:SEED_RC.support,maxLines:1}),
+        Txt(val(p),{fontSize:16,fontWeight:"bold",fontColor:SEED_RC.primary,maxLines:1})))));
+    const evs=(spec.eventIds||[]).slice(0,2);
+    while(evs.length<2) evs.push(null);
+    kids.push(RowC({width:"matchParent",space:6},...evs.map(id=>pill((id&&evDesc(id))||"打开",true))));
+  }
+  const root=Col({width:wide?336:160,height:160,padding:12,borderRadius:16,clip:true,space:6,
+    justifyContent:(tpl.sx==="Full"||tpl.sx==="WideFull")?"start":"spaceBetween",
+    backgroundColor:SEED_RC.bg},...kids);
+  return {root,dataRows,wide};
+}
+/* ==== TPL_FULL_LIB_END ==== */
 
 /* ---- 内联种子目录（原 playground/seed_catalog.json，来自真实云侧资产：7 能力 86 字段 18 事件）----
  * d = 一句话释义；s = 样例值。保持单文件属性：页面可 file:// 直开，不做 fetch / script src。 */
@@ -1397,34 +1456,31 @@ function seedEntry(spec){
   if(flags.length)
     el.insertAdjacentHTML("beforeend",'<div class="err-line">⚠ 目录未收录：'+escapeHtml(flags.join("、"))
       +'（种子字段理应全部来自注册表，请检查该种子）</div>');
-  /* ② 模板路由（附注）：命中方案照旧可切换渲染；未命中只提示一行小字 */
-  let options=[],built=null;
-  try{
-    built=seedBuildPlan(spec);
-    if(built.plan){ const search=searchTemplates(built.plan); options=enumeratePlans(built.plan,search); }
-  }catch(e){ options=[]; }
-  if(!options.length){
-    el.insertAdjacentHTML("beforeend",'<div class="note" style="margin-top:8px">附注：模板路由未命中（演练场模板库覆盖有限，不代表种子错误）</div>');
+  /* ② 模板路由（附注）：完整云侧模板库 TPL_LIBRARY + 首层规则近似（seedSearchFull）；
+   * 命中列出模板按钮（id + d），点击渲染该模板的近似骨架；未命中只提示一行小字 */
+  const hits=seedSearchFull(spec);
+  if(!hits.length){
+    el.insertAdjacentHTML("beforeend",'<div class="note" style="margin-top:8px">附注：完整模板库路由未命中（87 模板按首层规则过滤后无字段子集覆盖，不代表种子错误）</div>');
     return {node:el,kind:flags.length?"flagged":"review",routeHit:false};
   }
-  const {plan,mapNotes}=built;
   el.insertAdjacentHTML("beforeend",
-    '<div class="note" style="margin-top:8px">附注 · 模板路由命中：共 '+options.length+' 个合法方案（布局 × 模板），点击切换渲染：</div>'
-    +(mapNotes.length?'<div class="note">映射：'+escapeHtml(mapNotes.join("；"))+'</div>':"")
-    +'<details><summary>拼出的第一层 plan（确定性，未调模型）</summary><pre>'+escapeHtml(JSON.stringify(plan))+'</pre></details>');
+    '<div class="note" style="margin-top:8px">附注 · 完整模板库路由命中 '+hits.length+' 个模板（首层规则近似），点击渲染骨架：</div>');
   const optWrap=document.createElement("div"); el.appendChild(optWrap);
   const prevWrap=document.createElement("div"); prevWrap.className="seed-preview-wrap";
   const prevBox=document.createElement("div"); prevWrap.appendChild(prevBox); el.appendChild(prevWrap);
-  const btns=options.map((o,i)=>{
+  el.insertAdjacentHTML("beforeend",'<div class="note">近似骨架渲染，非云侧逐字节展开</div>');
+  const btns=hits.map((t,i)=>{
     const b2=document.createElement("button"); b2.type="button"; b2.className="seed-opt";
-    b2.textContent=(i+1)+". "+o.tpl.id+" ＋ "+o.layout.id+" ｜ shows: "+o.tpl.shows.join(", ");
+    b2.textContent=(i+1)+". "+t.id+" ｜ "+t.d;
     b2.addEventListener("click",()=>seedShow(i));
     optWrap.appendChild(b2); return b2;
   });
   function seedShow(i){
     btns.forEach((x,j)=>x.classList.toggle("active",j===i));
-    const {root,dataRows}=expandCard(plan,{...options[i],showIcon:false});
+    const {root,dataRows,wide}=seedTplSkeleton(hits[i],spec);
     renderPreview(root,dataRows,prevBox);
+    prevBox.style.transform=wide?"scale(0.85)":"scale(1.5)";
+    prevWrap.style.height=wide?"148px":"248px";
   }
   seedShow(0);
   return {node:el,kind:flags.length?"flagged":"review",routeHit:true};
@@ -1456,7 +1512,7 @@ function seedRenderAll(){
   }
   statusEl.textContent="共 "+lines.length+" 条：审阅卡 "+review+"（目录红标 "+flagged+"），边界 "+boundary
     +(bad?"，解析/渲染失败 "+bad:"")
-    +"；附注模板路由命中 "+routeHit+"（未命中不代表种子错误）。全程未发起任何网络请求。";
+    +"；附注完整库路由命中 "+routeHit+"（87 模板按首层规则近似过滤；未命中不代表种子错误）。全程未发起任何网络请求。";
 }
 document.getElementById("seedRun").addEventListener("click",seedRenderAll);
 document.getElementById("seedClear").addEventListener("click",()=>{
